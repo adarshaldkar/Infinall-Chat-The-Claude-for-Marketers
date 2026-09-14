@@ -17,7 +17,11 @@ export interface ToolDefinition {
 
 // 1. Web Search
 export const WebSearchArgsSchema = z.object({
-  queries: z.array(z.string().min(1)).min(1).max(5),
+  queries: z.array(z.string().min(1)).min(1).max(10).optional(),
+  query: z.string().optional(),
+  maxResults: z.number().optional(),
+}).refine((data) => (data.queries && data.queries.length > 0) || !!data.query, {
+  message: 'Either query or queries must be provided',
 });
 
 export type WebSearchArgs = z.infer<typeof WebSearchArgsSchema>;

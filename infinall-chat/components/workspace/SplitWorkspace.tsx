@@ -89,19 +89,44 @@ export default function SplitWorkspace({
   }, [messages, artifact, activeSessionId, isGenerating]);
 
   const sendMessage = useCallback(
-    async (userContent: string, modelId: string) => {
+    async (
+      userContent: string,
+      modelId: string,
+      options?: { isDeepResearch?: boolean; attachments?: Array<{ name: string; extractedText?: string; visionSummary?: { headlineHookScore: number; recommendations: string[] } }> }
+    ) => {
       if (isGenerating) return;
+
+      let effectiveContent = userContent;
+      if (options?.isDeepResearch && !effectiveContent.startsWith("/research")) {
+        effectiveContent = `/research ${effectiveContent}`;
+      }
+
+      if (options?.attachments && options.attachments.length > 0) {
+        const attachDescriptions = options.attachments
+          .map((a) => {
+            if (a.visionSummary) {
+              return `[Attached Creative: ${a.name} - Hook Score: ${a.visionSummary.headlineHookScore}/10. Recommendations: ${a.visionSummary.recommendations.join("; ")}]`;
+            }
+            if (a.extractedText) {
+              return `[Attached Document ${a.name}:\n${a.extractedText.slice(0, 1000)}]`;
+            }
+            return `[Attached File: ${a.name}]`;
+          })
+          .join("\n\n");
+
+        effectiveContent = effectiveContent ? `${effectiveContent}\n\n${attachDescriptions}` : attachDescriptions;
+      }
 
       let currentId = activeSessionId;
       // Auto-create session if none active
       if (!currentId) {
-        const title = userContent.length > 35 ? userContent.slice(0, 35) + "..." : userContent;
+        const title = userContent.length > 35 ? userContent.slice(0, 35) + "..." : userContent || "New Strategy Chat";
         const newSession = createNewSession(title);
         currentId = newSession.id;
         setSessionTitle(title);
         onSessionsChange();
       } else if (messages.length === 0) {
-        const title = userContent.length > 35 ? userContent.slice(0, 35) + "..." : userContent;
+        const title = userContent.length > 35 ? userContent.slice(0, 35) + "..." : userContent || "New Strategy Chat";
         updateSession(currentId, { title });
         setSessionTitle(title);
         onSessionsChange();
@@ -110,7 +135,7 @@ export default function SplitWorkspace({
       const userMessage: Message = {
         id: crypto.randomUUID(),
         role: "user",
-        content: userContent,
+        content: userContent || (options?.attachments?.[0]?.name ? `Analyzed attachment: ${options.attachments[0].name}` : "Uploaded deliverable"),
       };
 
       const assistantMessage: Message = {
@@ -126,7 +151,7 @@ export default function SplitWorkspace({
       const nextMessages = [...messages, userMessage, assistantMessage];
       setMessages(nextMessages);
       setIsGenerating(true);
-      setStatusMessage("Planning task...");
+      setStatusMessage(options?.isDeepResearch ? "Orchestrating multi-agent research..." : "Planning task...");
 
       const controller = new AbortController();
       setAbortController(controller);
@@ -140,7 +165,7 @@ export default function SplitWorkspace({
       try {
         const history = [
           ...messages.map((m) => ({ role: m.role, content: m.content })),
-          { role: "user" as const, content: userContent },
+          { role: "user" as const, content: effectiveContent },
         ];
 
         const res = await fetch("/api/chat", {

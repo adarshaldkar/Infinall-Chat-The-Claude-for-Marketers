@@ -10,6 +10,7 @@ import { runAgentLoop } from '@/lib/state/agent-loop';
 import { DEFAULT_MODEL_ID, MODEL_CATALOG } from '@/lib/gateway/catalog';
 import { CanonicalSSEEvent, LLMMessage } from '@/lib/gateway/types';
 import { ArtifactInterceptor } from '@/lib/artifacts/interceptor';
+import { SkillResolver } from '@/lib/skills/resolver';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -60,19 +61,23 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        // Step 1: Run planning pass
+        // Step 1: Resolve Progressive Skills & Multimodal Context
         enqueue({ type: 'plan_start', payload: { taskId: sessionId } });
 
-        const userMessage = messages[messages.length - 1]?.content ?? '';
-        const plan = await runPlanner(userMessage, modelId);
+        const rawUserMessage = messages[messages.length - 1]?.content ?? '';
+        const skillResolution = SkillResolver.resolveSkill(rawUserMessage);
+        const activeSkill = skillResolution.matchedSkill;
+        const cleanedUserMessage = skillResolution.cleanedPrompt;
+
+        const plan = await runPlanner(cleanedUserMessage, modelId);
 
         enqueue({
           type: 'plan_complete',
           payload: {
-            taskType: plan.task_type,
+            taskType: activeSkill ? activeSkill.category : plan.task_type,
             recommendedModel: plan.recommended_model,
-            candidateTools: plan.candidate_tools,
-            expectedArtifactType: plan.expected_artifact_type,
+            candidateTools: activeSkill?.suggestedTools.length ? activeSkill.suggestedTools : plan.candidate_tools,
+            expectedArtifactType: activeSkill?.defaultArtifactType || plan.expected_artifact_type,
           },
         });
 
@@ -85,10 +90,18 @@ export async function POST(req: NextRequest) {
             : DEFAULT_MODEL_ID;
 
         // Step 2: Convert messages to LLMMessage format
-        const llmMessages: LLMMessage[] = messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
+        const llmMessages: LLMMessage[] = messages.map((m, idx) => {
+          if (idx === messages.length - 1 && activeSkill) {
+            return {
+              role: m.role,
+              content: `${activeSkill.systemPromptInjection}\n\nUser Request: ${cleanedUserMessage}`,
+            };
+          }
+          return {
+            role: m.role,
+            content: m.content,
+          };
+        });
 
         // Step 3: Run autonomous agent loop with artifact interception
         const interceptor = new ArtifactInterceptor();
@@ -97,8 +110,11 @@ export async function POST(req: NextRequest) {
           {
             selectedModelId: resolvedModelId,
             messages: llmMessages,
-            systemPrompt: '',
-            plan,
+            systemPrompt: activeSkill ? activeSkill.systemPromptInjection : '',
+            plan: {
+              ...plan,
+              candidate_tools: activeSkill?.suggestedTools.length ? activeSkill.suggestedTools : plan.candidate_tools,
+            },
             sessionId,
           },
           abortController.signal

@@ -11,12 +11,12 @@
 
 Phase 1 established Claude-parity visual ergonomics, streaming chat, and collapsible split panes. Phase 2 delivered the autonomous multi-turn agent loop, Model Context Protocol (MCP) data connectivity, deferred tool discovery, and cryptographic mutation safety. Phase 3 delivered the universal multi-format artifact engine (HTML/React apps, WYSIWYG documents, native DOCX/XLSX/PPTX/PDF generation, and version diffing).
 
-**Phase 4** expands **Infinall Chat** into an **Autonomous Multi-Agent Marketing Team**:
-1. **3-Level Progressive Disclosure Skills Architecture**: Slash commands (`/skill`, `/research`, `/goal`, `/schedule`), automatic intent matching, and deferred skill rule injection to protect model context limits.
-2. **Deep Research Mode & Isolated Subagent Orchestrator**: Multi-agent research pipeline spawning parallel worker subagents (Competitor Intelligence, Pricing Analysis, SEO & SERP Trends, Ad Creative Benchmarks) with visual progress trees.
-3. **Enterprise 100+ Tools Directory Modal**: Comprehensive visual directory with category filtering (Paid Media, SEO, Analytics, CRM, Scraping), live health pings, and credential management.
+**Phase 4** elevates **Infinall Chat** into an **Autonomous Multi-Agent Marketing Team**:
+1. **3-Level Progressive Disclosure Skills Architecture**: Slash commands (`/skill`, `/research`, `/goal`, `/schedule`, `/grill-me`, `/learn`), automatic fuzzy intent matching, and deferred skill rule injection to prevent system prompt context bloat.
+2. **Deep Research Mode & Isolated Subagent Orchestrator**: Multi-agent research pipeline spawning parallel worker subagents (Competitor Intelligence, Pricing Analysis, SEO & SERP Trends, Ad Creative Benchmarks) with real-time streaming progress trees.
+3. **Enterprise 100+ Tools Directory Modal**: Comprehensive visual directory with category filtering (Paid Media, SEO, Analytics, CRM, Scraping), live health pings, latency monitors, and interactive query builders.
 4. **Multimodal Ingestion & Creative Vision Studio**: Drag-and-drop asset analysis for ad creatives, landing page screenshots, PDF strategy decks, and audio sales recordings with OCR and visual hook analysis.
-5. **Deterministic Acceptance & Benchmark Suite**: 12 deterministic criteria validating skill discovery, subagent coordination, multimodal parsing, and tools directory search.
+5. **Deterministic Benchmark & Regression Suite**: 12 deterministic criteria validating skill discovery, subagent concurrency, error isolation, multimodal parsing, and tools directory search.
 
 ---
 
@@ -25,10 +25,10 @@ Phase 1 established Claude-parity visual ergonomics, streaming chat, and collaps
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                       User Composer & Input Multi-Modal Hub                     │
-│  - Text Prompt + Slash Command (/research, /skill) + Image / PDF Upload         │
+│  - Text Prompt + Slash Command (/research, /ad-copy) + Creative Image / PDF     │
 └──────────────┬──────────────────────────────────────────────────▲───────────────┘
                │ 1. Multipart Request / Chat Stream Payload       │
-               ▼                                                  │ 7. Canonical SSE
+               ▼                                                  │ 8. Canonical SSE
 ┌───────────────────────────────────────────────────────────────┐ │    (Progress Tree,
 │                Step 4 Planning & Routing Engine               │ │     Subagent Deltas,
 │  - Parses Slash Commands & Multimodal Attachments             │ │     Multimodal Vision)
@@ -57,7 +57,7 @@ Phase 1 established Claude-parity visual ergonomics, streaming chat, and collaps
 │                           ▼                                   │
 │   ┌───────────────────────────────────────────────────────┐   │
 │   │ Synthesis & Cross-Verification Layer                  │   │
-│   │ - De-duplicates sources & cross-validates claims      │   │
+│   │ - Jaccard source de-duplication & claim validation    │   │
 │   │ - Emits unified intelligence briefing + Artifact      │   │
 │   └───────────────────────────────────────────────────────┘   │
 └───────────────────────────────────────────────────────────────┘
@@ -137,16 +137,46 @@ Level 3: Custom Workspace Skills (Repository / Team Defined)
 - Custom marketing rules stored in `.infinall/skills/*.md` or UI skill builder.
 ```
 
+#### TypeScript Types & Schema (`lib/skills/types.ts`)
+```typescript
+export type SkillCategory = 'strategy' | 'paid_media' | 'seo_content' | 'crm_retention' | 'cro_conversion';
+
+export interface SkillManifest {
+  slug: string; // e.g. '/ad-copy'
+  name: string;
+  category: SkillCategory;
+  description: string;
+  triggerKeywords: string[];
+  icon: string;
+  estimatedTokens: number;
+}
+
+export interface SkillRule {
+  id: string;
+  name: string;
+  instruction: string;
+  enforceFormat?: string;
+  exampleOutputs?: string[];
+}
+
+export interface CompleteSkill extends SkillManifest {
+  systemPromptInjection: string;
+  rules: SkillRule[];
+  suggestedTools: string[];
+  defaultArtifactType?: 'html' | 'markdown' | 'docx' | 'pptx' | 'xlsx';
+}
+```
+
 #### Canonical Built-In Marketing Skills Catalog (`lib/skills/catalog.ts`)
 
-| Skill Slug | Name | Category | Primary Capability |
-| :--- | :--- | :--- | :--- |
-| `/brand-voice` | **Brand Voice & Positioning** | Strategy | Enforces tone guidelines, core value propositions, and messaging pillars. |
-| `/ad-copy` | **Direct-Response Copywriter** | Paid Media | 5-part direct response ad copy variations (AIDA, PAS, Hook-Story-Offer). |
-| `/seo-audit` | **SEO Content & SERP Strategist** | Organic Search | Search intent mapping, keyword clustering, and technical meta tags. |
-| `/gtm-planner` | **GTM Launch Architect** | Strategy | Full 90-day launch roadmap, channel mix, budget split, and KPI scorecard. |
-| `/email-sequence`| **Lifecycle Email Sequence** | CRM & Retention | 7-day onboarding & win-back drip email sequences with subject lines. |
-| `/cro-teardown` | **Landing Page CRO Teardown** | Conversion | Above-the-fold audit, friction reduction, CTA contrast, and social proof. |
+| Skill Slug | Name | Category | Primary Capability | System Prompt Tokens |
+| :--- | :--- | :--- | :--- | :--- |
+| `/brand-voice` | **Brand Voice & Positioning** | Strategy | Enforces tone guidelines, core value propositions, and messaging pillars. | ~450 |
+| `/ad-copy` | **Direct-Response Copywriter** | Paid Media | 5-part direct response ad copy variations (AIDA, PAS, Hook-Story-Offer). | ~620 |
+| `/seo-audit` | **SEO Content & SERP Strategist** | SEO & Content | Search intent mapping, keyword clustering, and technical meta tags. | ~580 |
+| `/gtm-planner` | **GTM Launch Architect** | Strategy | Full 90-day launch roadmap, channel mix, budget split, and KPI scorecard. | ~750 |
+| `/email-sequence`| **Lifecycle Email Sequence** | CRM & Retention | 7-day onboarding & win-back drip email sequences with subject lines. | ~510 |
+| `/cro-teardown` | **Landing Page CRO Teardown** | CRO & Conversion | Above-the-fold audit, friction reduction, CTA contrast, and social proof. | ~640 |
 
 ---
 
@@ -154,36 +184,48 @@ Level 3: Custom Workspace Skills (Repository / Team Defined)
 
 When the user activates **Deep Research Mode** (or executes `/research [prompt]`), Infinall Chat dispatches an autonomous multi-agent hierarchy:
 
-```text
-User: "Perform a deep competitive teardown of HubSpot vs Salesforce vs ActiveCampaign for mid-market SaaS"
-                     ↓
-         Master Research Orchestrator
-                     │
-      ┌──────────────┼──────────────┐
-      ▼              ▼              ▼
- Subagent 1     Subagent 2     Subagent 3
-[Competitor]   [Pricing & CAC] [Features/API]
-(Firecrawl)     (Web Search)    (G2/Reviews)
-      │              │              │
-      └──────────────┼──────────────┘
-                     ▼
-         Cross-Source Synthesis
-                     ▼
-    Streaming SSE Progress Tree & Report
-```
-
 #### Subagent Execution Invariants (`lib/subagents/orchestrator.ts`)
 1. **Isolated Context Windows**: Each worker subagent maintains its own conversation history and tool execution loop to eliminate context bloat.
 2. **Parallel Concurrency**: Workers execute concurrently using `Promise.allSettled()` with individual 45-second execution timeouts.
-3. **Live Progress Tree Events**: The master orchestrator streams fine-grained task progress to the UI:
-   - `subagent_spawn`: `{ subagentId, taskName, assignedWorker }`
-   - `subagent_progress`: `{ subagentId, step, statusMessage, sourcesCount }`
-   - `subagent_complete`: `{ subagentId, findingsSummary, citations }`
-   - `synthesis_complete`: `{ combinedArtifact, totalSources }`
+3. **Cross-Source Synthesis Layer**:
+   - Calculates Jaccard token similarity across findings to remove duplicate claims.
+   - Assigns canonical numbered citation IDs (`[1]`, `[2]`, `[3]`).
+   - Produces an executive synthesis report with side-by-side comparison tables.
+
+#### Canonical Subagent Progress SSE Protocol (`lib/subagents/types.ts`)
+```typescript
+export type SubagentEventType =
+  | 'subagent_spawn'
+  | 'subagent_progress'
+  | 'subagent_complete'
+  | 'subagent_error'
+  | 'synthesis_start'
+  | 'synthesis_complete';
+
+export interface SubagentSpawnPayload {
+  subagentId: string;
+  taskName: string;
+  assignedWorker: 'competitor' | 'pricing' | 'serp' | 'general';
+  goal: string;
+}
+
+export interface SubagentProgressPayload {
+  subagentId: string;
+  currentStep: string;
+  sourcesFound: number;
+  elapsedMs: number;
+}
+
+export interface SubagentCompletePayload {
+  subagentId: string;
+  findings: string;
+  sources: Array<{ id: number; title: string; url: string; domain: string; snippet: string }>;
+}
+```
 
 ---
 
-### 4.3. 100+ Tools Directory Modal & Ecosystem
+### 4.3. 100+ Tools Directory Modal & Ecosystem Management
 
 A full-screen interactive directory accessible from the sidebar (`/tools` or clicking the "Analytics & Tools" tab):
 
@@ -199,7 +241,7 @@ A full-screen interactive directory accessible from the sidebar (`/tools` or cli
 
 ---
 
-### 4.4. Multimodal Ingestion & Ad Creative Vision Studio
+### 4.4. Multimodal Ingestion & Creative Vision Studio
 
 Enables marketers to upload creative assets for instant AI analysis:
 
@@ -218,16 +260,19 @@ Enables marketers to upload creative assets for instant AI analysis:
 ## 5. API Routes & Endpoint Specifications
 
 ### 5.1. Skills Manifest Endpoint: `GET /api/skills`
-Returns the active skills catalog with search filtering.
+- Query parameters: `category?: string`, `query?: string`
+- Returns array of `SkillManifest` objects with search filtering.
 
 ### 5.2. Research Orchestrator Stream: `POST /api/research/stream`
-Streams subagent progress events and synthesized multi-agent reports via Server-Sent Events (SSE).
+- Body: `{ prompt: string, depth: 'fast' | 'deep', targetCompetitors?: string[] }`
+- Streams subagent progress events (`subagent_spawn`, `subagent_progress`, `subagent_complete`, `synthesis_complete`) via Server-Sent Events (SSE).
 
 ### 5.3. Multimodal Upload Endpoint: `POST /api/upload`
-Accepts `multipart/form-data`, validates MIME types, stores temporary buffer, and returns parsed text/vision embeddings.
+- Accepts `multipart/form-data` with files up to 25MB.
+- Validates MIME types, extracts text/vision blocks, and returns canonical attachments payload.
 
 ### 5.4. Tools Directory Endpoint: `GET /api/directory/tools`
-Returns the 100+ tools registry with category tags, authentication requirements, and current server latency.
+- Returns the 100+ tools registry with category tags, authentication requirements, and current server latency.
 
 ---
 

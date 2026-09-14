@@ -12,10 +12,13 @@ import {
   deleteStoredSession,
 } from "@/lib/state/session-store";
 
+import ToolsDirectoryModal from "@/components/directory/ToolsDirectoryModal";
+
 export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveId] = useState<string | null>(null);
+  const [isToolsDirectoryOpen, setIsToolsDirectoryOpen] = useState(false);
 
   const refreshSessions = useCallback(() => {
     const stored = getStoredSessions();
@@ -66,6 +69,7 @@ export default function HomePage() {
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
         onDeleteSession={handleDeleteSession}
+        onOpenToolsDirectory={() => setIsToolsDirectoryOpen(true)}
       />
       <main className="flex-1 min-w-0 overflow-hidden relative">
         <SplitWorkspace
@@ -75,6 +79,12 @@ export default function HomePage() {
           onSessionsChange={refreshSessions}
         />
       </main>
+
+      {/* 100+ Tools & MCP Directory Modal */}
+      <ToolsDirectoryModal
+        isOpen={isToolsDirectoryOpen}
+        onClose={() => setIsToolsDirectoryOpen(false)}
+      />
     </div>
   );
 }

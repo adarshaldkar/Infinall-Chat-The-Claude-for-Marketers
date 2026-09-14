@@ -18,8 +18,13 @@ export interface WebSearchResult {
 // (no API key needed) and generate structured citations from the response.
 export async function executeWebSearch(args: WebSearchArgs): Promise<WebSearchResult[]> {
   const results: WebSearchResult[] = [];
+  const queryList = args.queries && args.queries.length > 0
+    ? args.queries
+    : args.query
+    ? [args.query]
+    : [];
 
-  for (const query of args.queries) {
+  for (const query of queryList) {
     try {
       // Try DuckDuckGo Instant Answer API as a lightweight search source
       const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;

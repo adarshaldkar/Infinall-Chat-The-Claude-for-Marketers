@@ -12,7 +12,7 @@ interface ChatWorkspaceProps {
   messages: Message[];
   isGenerating: boolean;
   statusMessage: string;
-  onSendMessage: (content: string, modelId: string) => void;
+  onSendMessage: (content: string, modelId: string, options?: { isDeepResearch?: boolean; attachments?: any[] }) => void;
   onStop: () => void;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;

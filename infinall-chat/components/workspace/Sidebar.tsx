@@ -12,6 +12,7 @@ interface SidebarProps {
   onSelectSession: (id: string) => void;
   onNewChat: () => void;
   onDeleteSession: (id: string) => void;
+  onOpenToolsDirectory?: () => void;
 }
 
 export default function Sidebar({
@@ -22,6 +23,7 @@ export default function Sidebar({
   onSelectSession,
   onNewChat,
   onDeleteSession,
+  onOpenToolsDirectory,
 }: SidebarProps) {
   return (
     <aside
@@ -74,19 +76,21 @@ export default function Sidebar({
       {/* Quick Actions */}
       <div className="px-3 pb-2">
         <div className="space-y-0.5">
-          {[
-            { icon: MessageSquare, label: "Projects" },
-            { icon: BarChart2, label: "Analytics" },
-          ].map(({ icon: Icon, label }) => (
-            <button
-              key={label}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover:bg-zinc-800/60"
-              style={{ color: "var(--color-text-muted)" }}
-            >
-              <Icon className="w-4 h-4" />
-              {label}
-            </button>
-          ))}
+          <button
+            onClick={onOpenToolsDirectory}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover:bg-zinc-800/60"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            <BarChart2 className="w-4 h-4 text-cyan-400" />
+            <span>Tools & Integrations</span>
+          </button>
+          <button
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover:bg-zinc-800/60"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            <MessageSquare className="w-4 h-4 text-amber-400" />
+            <span>Marketing Projects</span>
+          </button>
         </div>
       </div>
 
