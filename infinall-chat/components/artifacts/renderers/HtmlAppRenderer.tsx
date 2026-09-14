@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Monitor, Tablet, Smartphone, Maximize2, RotateCcw } from "lucide-react";
+import { Monitor, Tablet, Smartphone, RotateCcw } from "lucide-react";
 
 interface HtmlAppRendererProps {
   content: string;
@@ -23,8 +23,41 @@ export default function HtmlAppRenderer({ content, isStreaming }: HtmlAppRendere
 
     const hasDoctype = cleanCode.toLowerCase().includes("<!doctype html>") || cleanCode.toLowerCase().includes("<html");
 
+    // Polyfill script to guarantee slider & calculation interactivity
+    const helperScript = `
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+          window.lucide.createIcons();
+        }
+
+        // Auto-wire range slider labels if id-val / id-value patterns exist
+        const ranges = document.querySelectorAll('input[type="range"]');
+        ranges.forEach(r => {
+          r.addEventListener('input', () => {
+            const valEl = document.getElementById(r.id + '-val') || document.getElementById(r.id + '-value') || document.querySelector('[data-val-for="' + r.id + '"]');
+            if (valEl) {
+              const prefix = valEl.textContent.trim().startsWith('$') ? '$' : '';
+              const suffix = valEl.textContent.trim().endsWith('%') ? '%' : '';
+              valEl.textContent = prefix + Number(r.value).toLocaleString() + suffix;
+            }
+          });
+        });
+      });
+    </script>
+    `;
+
     if (hasDoctype) {
-      return cleanCode;
+      // Ensure Tailwind & Lucide are present
+      let enhanced = cleanCode;
+      if (!enhanced.includes("cdn.tailwindcss.com")) {
+        enhanced = enhanced.replace("<head>", '<head>\n<script src="https://cdn.tailwindcss.com"></script>');
+      }
+      if (!enhanced.includes("unpkg.com/lucide")) {
+        enhanced = enhanced.replace("</head>", '<script src="https://unpkg.com/lucide@latest"></script>\n</head>');
+      }
+      enhanced = enhanced.replace("</body>", `${helperScript}\n</body>`);
+      return enhanced;
     }
 
     return `<!DOCTYPE html>
@@ -64,13 +97,7 @@ export default function HtmlAppRenderer({ content, isStreaming }: HtmlAppRendere
 </head>
 <body class="p-4 sm:p-6 antialiased">
   ${cleanCode}
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      if (window.lucide) {
-        window.lucide.createIcons();
-      }
-    });
-  </script>
+  ${helperScript}
 </body>
 </html>`;
   }, [content]);
