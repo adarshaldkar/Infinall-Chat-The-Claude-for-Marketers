@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #111113;
+  --color-sidebar: #18181b;
+  --color-canvas: #1f1f23;
+  --color-card: #27272a;
+  --color-border: #3f3f46;
+  --color-muted: #52525b;
+  --color-accent: #da7756;
+  --color-accent-hover: #e8896a;
+  --color-text: #fafafa;
+  --color-text-muted: #a1a1aa;
+  --color-search-pill: #22d3ee;
+  --color-success: #22c55e;
+  --color-error: #ef4444;
+  --color-warning: #f59e0b;
+
+  --font-sans: "Inter", "Geist", system-ui, sans-serif;
+  --radius: 0.75rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar — Claude-like */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
+
+/* Smooth scrolling */
+* {
+  scroll-behavior: smooth;
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Prose styles for assistant messages */
+.prose-infinall {
+  color: var(--color-text);
+  line-height: 1.7;
+  font-size: 0.9375rem;
+}
+.prose-infinall h1,
+.prose-infinall h2,
+.prose-infinall h3 {
+  font-weight: 600;
+  color: var(--color-text);
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+}
+.prose-infinall p {
+  margin-bottom: 0.75em;
+}
+.prose-infinall code {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+  font-size: 0.85em;
+  font-family: "Fira Code", "Cascadia Code", monospace;
+}
+.prose-infinall pre {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  position: relative;
+}
+.prose-infinall pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 0.8125rem;
+}
+.prose-infinall ul,
+.prose-infinall ol {
+  padding-left: 1.5em;
+  margin-bottom: 0.75em;
+}
+.prose-infinall li {
+  margin-bottom: 0.25em;
+}
+.prose-infinall strong {
+  font-weight: 600;
+  color: var(--color-text);
+}
+.prose-infinall blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 1em;
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin: 1em 0;
+}
+.prose-infinall a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-infinall a:hover {
+  color: var(--color-accent-hover);
+}
+
+/* Thinking accordion animation */
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.thinking-pulse {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-card) 25%,
+    var(--color-border) 50%,
+    var(--color-card) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Scroll lock — prevent body scroll when modal open */
+body.modal-open {
+  overflow: hidden;
+}
