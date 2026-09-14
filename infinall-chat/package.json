@@ -18,7 +18,10 @@
   "dependencies": {
     "@base-ui/react": "^1.8.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@supabase/server": "^1.6.0",
+    "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.116.0",
+    "@types/pg": "^8.23.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cn": "^0.3.0",
@@ -30,6 +33,7 @@
     "next": "16.3.5",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
+    "pg": "^8.23.0",
     "pptxgenjs": "^4.0.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
