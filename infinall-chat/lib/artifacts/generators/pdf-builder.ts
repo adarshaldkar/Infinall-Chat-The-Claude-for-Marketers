@@ -139,6 +139,35 @@ export class PdfBuilder {
       }
     }
 
+    // Add running header, footer, and page numbers to all pages
+    const totalPages = pdfDoc.getPageCount();
+    for (let pIdx = 0; pIdx < totalPages; pIdx++) {
+      const p = pdfDoc.getPage(pIdx);
+      // Running header
+      p.drawText('Infinall Chat — Autonomous Marketing Intelligence', {
+        x: margin,
+        y: height - 30,
+        size: 8,
+        font: timesRomanFont,
+        color: rgb(0.5, 0.55, 0.6),
+      });
+      // Running footer with page numbering
+      p.drawText(`Page ${pIdx + 1} of ${totalPages}`, {
+        x: width - margin - 55,
+        y: 30,
+        size: 8,
+        font: timesRomanFont,
+        color: rgb(0.5, 0.55, 0.6),
+      });
+      p.drawText('Confidential & Proprietary Marketing Deliverable', {
+        x: margin,
+        y: 30,
+        size: 8,
+        font: timesRomanFont,
+        color: rgb(0.5, 0.55, 0.6),
+      });
+    }
+
     const pdfBytes = await pdfDoc.save();
     return Buffer.from(pdfBytes);
   }

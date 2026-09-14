@@ -9,7 +9,7 @@ import { ModelCatalogEntry, getModel } from '../gateway/catalog';
 import { streamModelTurn, ToolSchema } from '../gateway/index';
 import { PlannerOutput } from './planner';
 import { DEFAULT_AGENT_POLICY, AgentPolicy } from './policy';
-import { TOOL_REGISTRY, isMutationTool, validateToolArgs } from '../tools/registry';
+import { isMutationTool, validateToolArgs } from '../tools/registry';
 import { resolveCandidateTools } from '../tools/search';
 import { beforeToolExecution, afterToolExecution } from '../tools/hooks';
 import { executeWebSearch } from '../tools/web-search';
@@ -88,6 +88,7 @@ export async function* runAgentLoop(
   let currentMessages: LLMMessage[] = [...config.messages];
   let turn = 0;
   let totalToolCalls = 0;
+  let totalOutputTokens = 0;
 
   while (turn < policy.maxTurns) {
     if (signal.aborted) {
@@ -130,6 +131,21 @@ export async function* runAgentLoop(
 
     // No tool calls this turn → model produced its complete final response
     if (pendingToolEnds.size === 0) {
+      return;
+    }
+
+    // Token budget enforcement: count approximate output tokens this turn
+    const turnOutputTokens = Math.ceil(textBuffer.length / 4); // ~4 chars per token
+    totalOutputTokens += turnOutputTokens;
+    if (totalOutputTokens > policy.totalTokenBudget) {
+      yield {
+        type: 'error',
+        payload: {
+          message: `Token budget exceeded (used ~${totalOutputTokens.toLocaleString()} / ${policy.totalTokenBudget.toLocaleString()} tokens). Agent loop stopped.`,
+          code: 'TOKEN_BUDGET_EXCEEDED',
+          recoverable: false,
+        },
+      };
       return;
     }
 
@@ -179,13 +195,26 @@ export async function* runAgentLoop(
 
     // Execute Read Tools in Parallel using Promise.allSettled
     if (readTools.size > 0) {
-      totalToolCalls += readTools.size;
-      if (totalToolCalls > policy.maxToolCallsPerTurn * turn) {
+      // Per-turn limit check
+      if (readTools.size > policy.maxToolCallsPerTurn) {
         yield {
           type: 'error',
           payload: {
-            message: 'Maximum tool calls exceeded. Stopping agent loop.',
-            code: 'MAX_TOOL_CALLS',
+            message: `Too many parallel tool calls this turn (${readTools.size} > maxToolCallsPerTurn: ${policy.maxToolCallsPerTurn}).`,
+            code: 'MAX_TOOL_CALLS_PER_TURN',
+            recoverable: false,
+          },
+        };
+        return;
+      }
+      // Total lifetime cap check
+      totalToolCalls += readTools.size;
+      if (totalToolCalls > policy.maxToolCallsTotal) {
+        yield {
+          type: 'error',
+          payload: {
+            message: `Maximum total tool calls exceeded (${totalToolCalls} > maxToolCallsTotal: ${policy.maxToolCallsTotal}). Stopping agent loop.`,
+            code: 'MAX_TOOL_CALLS_TOTAL',
             recoverable: false,
           },
         };
@@ -306,6 +335,7 @@ export async function* runAgentLoop(
             type: 'tool_result',
             tool_use_id: r.callId,
             content: typeof r.result === 'string' ? r.result : JSON.stringify(r.result),
+            ...(r.isError ? { is_error: true } : {}),
           });
         }
       }

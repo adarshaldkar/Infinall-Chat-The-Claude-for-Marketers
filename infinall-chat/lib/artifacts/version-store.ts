@@ -2,7 +2,7 @@
 // Infinall Chat - Artifact Immutable Version Store & Diff Engine
 // ============================================================
 
-import { ArtifactSnapshot, UniversalArtifact } from './types';
+import { ArtifactSnapshot } from './types';
 
 export interface DiffLine {
   type: 'added' | 'removed' | 'unchanged';

@@ -1,6 +1,7 @@
 // ============================================================
 // Cryptographic Mutation Approval Vault
 // Invariant: single-use, 5m TTL, binds exact canonical argument hash
+// Persisted durably to disk so restarts do not lose pending approvals
 // ============================================================
 
 import { randomUUID } from 'crypto';
@@ -8,6 +9,7 @@ import { MutationDiff } from '@/lib/gateway/types';
 import { hashCanonicalArgs, generateApprovalToken, verifyApprovalToken } from './signer';
 import { buildMutationDiff } from './diff-builder';
 import { logAuditEvent } from './audit-logger';
+import { db, ApprovalRecordItem } from '@/lib/storage/db';
 
 export interface ApprovalRecord {
   executionId: string;
@@ -23,9 +25,28 @@ export interface ApprovalRecord {
   status: 'pending' | 'approved' | 'rejected' | 'expired';
 }
 
-const approvalStore = new Map<string, ApprovalRecord>();
-
 const APPROVAL_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function toRecord(item: ApprovalRecordItem): ApprovalRecord {
+  return {
+    executionId: item.id,
+    token: (item.args as Record<string, unknown>)?.__token as string || '',
+    toolName: item.toolName,
+    args: item.args,
+    argsHash: item.expectedHash,
+    sessionId: item.sessionId || '',
+    actionSummary: item.diffSummary,
+    diff: {
+      account: 'Infinall Marketing',
+      campaignName: item.toolName,
+      budgetChange: item.diffSummary,
+      rawParams: item.args,
+    },
+    expiresAt: item.expiresAt ? new Date(item.expiresAt).getTime() : Date.now() + APPROVAL_TTL_MS,
+    consumed: item.status !== 'pending',
+    status: item.status,
+  };
+}
 
 export function createApproval(
   toolName: string,
@@ -53,7 +74,21 @@ export function createApproval(
     status: 'pending',
   };
 
-  approvalStore.set(executionId, record);
+  // Persist durably to storage
+  db.approvals.set(executionId, {
+    id: executionId,
+    toolCallId: executionId,
+    toolName,
+    args: { ...args, __token: token },
+    expectedHash: argsHash,
+    diffSummary: summary,
+    riskLevel: 'HIGH',
+    status: 'pending',
+    sessionId,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    expiresAt: new Date(expiresAt).toISOString(),
+  });
 
   logAuditEvent({
     executionId,
@@ -72,13 +107,15 @@ export function consumeApproval(
   sessionId: string,
   argsHash: string
 ): { ok: boolean; reason?: string; record?: ApprovalRecord } {
-  const record = approvalStore.get(executionId);
+  const item = db.approvals.get(executionId);
 
-  if (!record) {
+  if (!item) {
     return { ok: false, reason: 'APPROVAL_NOT_FOUND' };
   }
 
-  if (record.consumed) {
+  const record = toRecord(item);
+
+  if (record.consumed || item.status !== 'pending') {
     return { ok: false, reason: 'APPROVAL_ALREADY_CONSUMED' };
   }
 
@@ -87,7 +124,9 @@ export function consumeApproval(
   }
 
   if (Date.now() > record.expiresAt) {
-    record.status = 'expired';
+    item.status = 'expired';
+    item.updatedAt = new Date().toISOString();
+    db.approvals.set(executionId, item);
     logAuditEvent({
       executionId,
       sessionId,
@@ -125,6 +164,10 @@ export function consumeApproval(
   }
 
   // Mark consumed to enforce single-use invariant
+  item.status = 'approved';
+  item.updatedAt = new Date().toISOString();
+  db.approvals.set(executionId, item);
+
   record.consumed = true;
   record.status = 'approved';
 
@@ -145,9 +188,15 @@ export function rejectApproval(
   sessionId: string,
   reason?: string
 ): { ok: boolean; record?: ApprovalRecord } {
-  const record = approvalStore.get(executionId);
-  if (!record) return { ok: false };
+  const item = db.approvals.get(executionId);
+  if (!item) return { ok: false };
 
+  item.status = 'rejected';
+  item.rejectionReason = reason;
+  item.updatedAt = new Date().toISOString();
+  db.approvals.set(executionId, item);
+
+  const record = toRecord(item);
   record.consumed = true;
   record.status = 'rejected';
 

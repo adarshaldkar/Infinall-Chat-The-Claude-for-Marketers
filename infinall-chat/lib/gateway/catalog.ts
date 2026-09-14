@@ -50,6 +50,17 @@ export const MODEL_CATALOG: Record<string, ModelCatalogEntry> = {
     supportsPromptCaching: true,
     supportsVision: true,
   },
+  'gpt-5-6': {
+    id: 'gpt-5-6',
+    name: 'GPT-5.6',
+    provider: 'openai',
+    apiType: 'chat-completions',
+    endpoint: `${process.env.LLM_GATEWAY_BASE_URL ?? 'https://llm.ganeshnayak.in'}/v1/chat/completions`,
+    contextWindow: 128_000,
+    supportsExtendedThinking: false,
+    supportsPromptCaching: false,
+    supportsVision: true,
+  },
 };
 
 export const DEFAULT_MODEL_ID = 'claude-sonnet-4-6';
@@ -63,7 +74,7 @@ export function getModel(modelId: string): ModelCatalogEntry {
 }
 
 export function getApiKey(provider: ModelCatalogEntry['provider']): string {
-  const key = process.env.LLM_GATEWAY_API_KEY;
-  if (!key) throw new Error('LLM_GATEWAY_API_KEY is not set in environment variables');
-  return key;
+  const scoped = process.env[`LLM_GATEWAY_API_KEY_${provider.toUpperCase()}`] ?? process.env.LLM_GATEWAY_API_KEY;
+  if (!scoped) throw new Error('LLM_GATEWAY_API_KEY is not set in environment variables');
+  return scoped;
 }

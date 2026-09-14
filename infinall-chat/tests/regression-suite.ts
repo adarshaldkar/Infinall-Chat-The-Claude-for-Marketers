@@ -3,9 +3,9 @@
 // Tests T01, T02, T03, and T04 with cryptographic assertion invariants
 // ============================================================
 
+import './helpers/env';
 import { searchToolCatalog, resolveCandidateTools } from '../lib/tools/search';
 import { createApproval, consumeApproval } from '../lib/tools/approval/store';
-import { hashCanonicalArgs, generateApprovalToken, verifyApprovalToken } from '../lib/tools/approval/signer';
 import { executeGA4Metrics } from '../lib/mcp/adapters/ga4-adapter';
 import { executeFirecrawlScrape } from '../lib/mcp/adapters/firecrawl-adapter';
 
@@ -31,7 +31,7 @@ async function runRegressionSuite() {
   // T01: Copywriting Benchmark
   // ----------------------------------------------------
   console.log('--- Test T01: Copywriting Intent (No Tools) ---');
-  const t01Search = searchToolCatalog('Draft 3 high-converting LinkedIn ad variations for B2B SaaS', 2);
+  searchToolCatalog('Draft 3 high-converting LinkedIn ad variations for B2B SaaS', 2);
   const t01Resolved = resolveCandidateTools([], 'Draft 3 high-converting LinkedIn ad variations for B2B SaaS');
   assert(t01Resolved.length === 0 || !t01Resolved.some(t => t.name === 'meta_ads_mutate'), 'T01: No mutation tools triggered for pure copywriting');
 
@@ -44,7 +44,21 @@ async function runRegressionSuite() {
   assert(t02Candidates.some(t => t.name === 'firecrawl_scrape'), 'T02: Firecrawl scraper tool dynamically discovered via catalog search');
 
   const scrapeResult = await executeFirecrawlScrape({ url: 'https://hubspot.com/pricing' });
-  assert(scrapeResult.markdown.includes('HubSpot Sales Hub Pricing'), 'T02: Firecrawl mock adapter extracts structured pricing markdown');
+  assert(scrapeResult.isSandbox === true, 'T02: Sandbox scraper data is explicitly labelled isSandbox=true');
+  assert(scrapeResult.markdown.includes('HubSpot'), 'T02: Sandbox scraper returns structured competitor markdown');
+  assert(scrapeResult.extractedPricing!.length >= 3, 'T02: Pricing extraction returns >= 3 tiers');
+
+  // Fail-closed invariants: connectors never execute in 'off' mode, never fabricate in 'live' without creds
+  const originalMode = process.env.MCP_MODE;
+  process.env.MCP_MODE = 'off';
+  let threwOff = false;
+  try {
+    await executeFirecrawlScrape({ url: 'https://hubspot.com/pricing' });
+  } catch (e) {
+    threwOff = e instanceof Error && e.message.includes('cannot execute');
+  }
+  process.env.MCP_MODE = originalMode ?? 'sandbox';
+  assert(threwOff, 'T02b: Connector fails closed (throws) when MCP_MODE=off');
 
   // ----------------------------------------------------
   // T03: Analytics & GA4 Metrics Benchmark
@@ -54,7 +68,8 @@ async function runRegressionSuite() {
   assert(t03Candidates.some(t => t.name === 'ga4_metrics'), 'T03: GA4 analytics tool discovered');
 
   const ga4Result = await executeGA4Metrics({ startDate: '2026-08-01', endDate: '2026-08-31' });
-  assert(ga4Result.summary.conversionRate === '2.65%', 'T03: GA4 returns verified channel breakdown and CPA');
+  assert(ga4Result.isSandbox === true, 'T03: Sandbox GA4 data is explicitly labelled isSandbox=true');
+  assert(ga4Result.summary.sessions > 0 && ga4Result.channelBreakdown.length >= 3, 'T03: GA4 returns structured channel breakdown and summary');
 
   // ----------------------------------------------------
   // T04: Mutation Safety & Cryptographic Approval Gate

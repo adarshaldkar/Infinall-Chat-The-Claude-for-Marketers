@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles, Compass } from "lucide-react";
+import { Compass } from "lucide-react";
 
 interface ResearchModeToggleProps {
   isDeepResearch: boolean;

@@ -12,7 +12,6 @@ interface MarkdownDocumentEditorProps {
 
 export default function MarkdownDocumentEditor({
   content,
-  isStreaming,
   onContentChange,
 }: MarkdownDocumentEditorProps) {
   const [isEditing, setIsEditing] = useState(false);

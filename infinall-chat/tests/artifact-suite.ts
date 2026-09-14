@@ -4,6 +4,7 @@
 // Version Store, and Renderer Integrity.
 // ============================================================
 
+import './helpers/env';
 import { ArtifactInterceptor } from '../lib/artifacts/interceptor';
 import { ArtifactVersionStore } from '../lib/artifacts/version-store';
 import { DocxBuilder } from '../lib/artifacts/generators/docx-builder';
@@ -40,7 +41,6 @@ async function runPhase3Benchmark() {
   const events1 = interceptor.processDelta(chunk1);
   const textEvents1 = events1.filter((e) => e.type === 'text_delta');
   const openEvents1 = events1.filter((e) => e.type === 'artifact_open');
-  const deltaEvents1 = events1.filter((e) => e.type === 'artifact_delta');
 
   assert(openEvents1.length === 1, 'A01.1', '<antArtifact> opening tag detected and emitted artifact_open');
   assert(openEvents1[0].type === 'artifact_open' && openEvents1[0].payload.title === 'Q3 Marketing Strategy', 'A01.2', 'Artifact title extracted accurately');

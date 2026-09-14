@@ -49,7 +49,7 @@ export function renderMarkdownToHtml(markdown: string): string {
       return;
     }
 
-    let headerRowIdx = 0;
+    const headerRowIdx = 0;
     let delimiterRowIdx = 1;
 
     if (!isDelimiterRow(tableRows[1]) && tableRows.length >= 3 && isDelimiterRow(tableRows[2])) {
@@ -135,5 +135,9 @@ function formatInline(str: string): string {
   return str
     .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-zinc-100">$1</strong>')
     .replace(/\*(.+?)\*/g, '<em class="italic text-zinc-200">$1</em>')
-    .replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded text-xs font-mono bg-zinc-800/90 text-amber-300 border border-zinc-700/50">$1</code>');
+    .replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded text-xs font-mono bg-zinc-800/90 text-amber-300 border border-zinc-700/50">$1</code>')
+    // Citations like [1] or [^1]
+    .replace(/\[\^?(\d+)\]/g, '<sup class="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 mx-0.5 cursor-pointer hover:bg-cyan-500/40 transition-colors" title="Citation source #$1">$1</sup>')
+    // Clickable external links
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 inline-flex items-center gap-0.5 font-medium transition-colors">$1 <span class="text-[10px]">↗</span></a>');
 }

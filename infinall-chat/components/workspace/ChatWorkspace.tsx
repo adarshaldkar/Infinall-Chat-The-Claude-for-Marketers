@@ -7,16 +7,20 @@ import AssistantMessage from "@/components/chat/AssistantMessage";
 import EmptyState from "@/components/chat/EmptyState";
 import Composer from "@/components/chat/Composer";
 import { PanelLeft, Sparkles } from "lucide-react";
+import { UploadedAttachment } from "@/lib/multimodal/types";
 
 interface ChatWorkspaceProps {
   messages: Message[];
   isGenerating: boolean;
   statusMessage: string;
-  onSendMessage: (content: string, modelId: string, options?: { isDeepResearch?: boolean; attachments?: any[] }) => void;
+  onSendMessage: (content: string, modelId: string, options?: { isDeepResearch?: boolean; attachments?: UploadedAttachment[] }) => void;
   onStop: () => void;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
   sessionTitle?: string;
+  onRegenerate?: (messageId: string) => void;
+  onSwitchVariant?: (messageId: string, variantIndex: number) => void;
+  onEditMessage?: (messageId: string, newContent: string) => void;
 }
 
 export default function ChatWorkspace({
@@ -28,6 +32,9 @@ export default function ChatWorkspace({
   sidebarOpen,
   onToggleSidebar,
   sessionTitle,
+  onRegenerate,
+  onSwitchVariant,
+  onEditMessage,
 }: ChatWorkspaceProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -43,30 +50,29 @@ export default function ChatWorkspace({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const onScroll = () => {
-      const atBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight < 80;
-      isUserScrolled.current = !atBottom;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      isUserScrolled.current = distanceFromBottom > 80;
     };
-    container.addEventListener("scroll", onScroll, { passive: true });
-    return () => container.removeEventListener("scroll", onScroll);
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
   return (
-    <div
-      className="flex flex-col h-full"
-      style={{ background: "var(--color-canvas)" }}
-    >
-      {/* Top Header Bar with Sidebar Toggle Button */}
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: "var(--color-bg)" }}>
+      {/* Workspace Header */}
       <div
-        className="flex items-center justify-between px-4 py-3 border-b shrink-0 z-10"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-sidebar)" }}
+        className="flex items-center justify-between px-4 py-2.5 border-b shrink-0 z-10"
+        style={{ borderColor: "var(--color-border)", background: "rgba(9, 9, 11, 0.75)", backdropFilter: "blur(12px)" }}
       >
-        <div className="flex items-center gap-2.5">
-          {onToggleSidebar && (
+        <div className="flex items-center gap-3">
+          {!sidebarOpen && onToggleSidebar && (
             <button
               onClick={onToggleSidebar}
-              title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+              title="Open Sidebar"
               className="p-1.5 rounded-lg border border-zinc-700/60 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors shadow-sm"
             >
               <PanelLeft className="w-4 h-4" />
@@ -93,13 +99,20 @@ export default function ChatWorkspace({
           <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
             {messages.map((msg) =>
               msg.role === "user" ? (
-                <UserMessage key={msg.id} message={msg} />
+                <UserMessage
+                  key={msg.id}
+                  message={msg}
+                  onEditMessage={onEditMessage}
+                  isGenerating={isGenerating}
+                />
               ) : (
                 <AssistantMessage
                   key={msg.id}
                   message={msg}
                   isGenerating={isGenerating}
                   statusMessage={statusMessage}
+                  onRegenerate={onRegenerate}
+                  onSwitchVariant={onSwitchVariant}
                 />
               )
             )}

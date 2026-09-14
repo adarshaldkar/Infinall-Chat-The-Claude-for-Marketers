@@ -184,6 +184,7 @@ export default function HtmlAppRenderer({ content, isStreaming }: HtmlAppRendere
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data: https: blob:; connect-src https:;" />
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -298,7 +299,7 @@ export default function HtmlAppRenderer({ content, isStreaming }: HtmlAppRendere
           key={iframeKey}
           srcDoc={srcDoc}
           title="Artifact Preview"
-          sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin"
+          sandbox="allow-scripts allow-forms allow-popups allow-modals"
           className={`${widthClass} h-full bg-zinc-950 transition-all duration-300 border-zinc-800`}
         />
       </div>

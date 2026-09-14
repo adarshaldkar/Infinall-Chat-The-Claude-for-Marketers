@@ -164,7 +164,7 @@ export default function ToolAccordion({ toolCall }: ToolAccordionProps) {
                       color: "#22d3ee",
                     }}
                   >
-                    "{q}"
+                    &ldquo;{q}&rdquo;
                   </span>
                 ))}
               </div>

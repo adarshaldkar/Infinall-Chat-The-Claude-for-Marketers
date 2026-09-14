@@ -60,3 +60,4 @@ export class MemoryTokenBucket implements RateLimiter {
 }
 
 export const defaultToolRateLimiter = new MemoryTokenBucket(15, 3);
+export const defaultApiRateLimiter = new MemoryTokenBucket(60, 10);

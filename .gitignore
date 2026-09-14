@@ -32,3 +32,8 @@ yarn-error.log*
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Exclude Complete backup folder
+Infinall_Chat_Complete/
+Infinall_Chat_Complete
+infinall-chat/.data/

@@ -7,6 +7,9 @@ import ChartRenderer from "./renderers/ChartRenderer";
 import MermaidDiagramRenderer from "./renderers/MermaidDiagramRenderer";
 import SpreadsheetViewer from "./renderers/SpreadsheetViewer";
 import CodeEditorRenderer from "./renderers/CodeEditorRenderer";
+import SvgViewer from "./renderers/SvgViewer";
+import VideoPlayerRenderer from "./renderers/VideoPlayerRenderer";
+import PresentationViewer from "./renderers/PresentationViewer";
 
 interface ArtifactRendererRegistryProps {
   id: string;
@@ -19,7 +22,6 @@ interface ArtifactRendererRegistryProps {
 }
 
 export default function ArtifactRendererRegistry({
-  id,
   type,
   language,
   content,
@@ -39,10 +41,15 @@ export default function ArtifactRendererRegistry({
     case "react":
       return <HtmlAppRenderer content={content} isStreaming={isStreaming} />;
 
+    case "svg":
+      return <SvgViewer content={content} isStreaming={isStreaming} />;
+
+    case "video":
+      return <VideoPlayerRenderer content={content} isStreaming={isStreaming} />;
+
     case "markdown":
     case "docx":
     case "pdf":
-    case "pptx":
       return (
         <MarkdownDocumentEditor
           content={content}
@@ -50,6 +57,9 @@ export default function ArtifactRendererRegistry({
           onContentChange={onContentChange}
         />
       );
+
+    case "pptx":
+      return <PresentationViewer content={content} isStreaming={isStreaming} />;
 
     case "xlsx":
       return <SpreadsheetViewer content={content} />;

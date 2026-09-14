@@ -159,8 +159,8 @@ export default function ArtifactPanel({
 
       {/* Artifact Rendered Content Area */}
       <div className="flex-1 overflow-hidden relative">
-        {artifact.isStreaming && !artifact.content ? (
-          <ArtifactSkeleton />
+        {!artifact.content ? (
+          <ArtifactSkeleton isStreaming={artifact.isStreaming} title={artifact.title} />
         ) : (
           <ArtifactRendererRegistry
             id={artifact.id}
@@ -187,9 +187,15 @@ export default function ArtifactPanel({
   );
 }
 
-function ArtifactSkeleton() {
+function ArtifactSkeleton({ isStreaming, title }: { isStreaming?: boolean; title?: string }) {
   return (
-    <div className="p-8 space-y-4 max-w-2xl mx-auto">
+    <div className="p-8 space-y-4 max-w-2xl mx-auto animate-in fade-in duration-300">
+      <div className="flex items-center gap-2 mb-6">
+        <Sparkles className="w-4 h-4 text-cyan-400 animate-spin" />
+        <span className="text-xs font-mono text-zinc-400">
+          {isStreaming ? `Generating "${title ?? "deliverable"}"...` : "Preparing deliverable workspace..."}
+        </span>
+      </div>
       <div className="skeleton-shimmer h-7 rounded-lg w-2/3" />
       <div className="skeleton-shimmer h-4 rounded-lg w-full" />
       <div className="skeleton-shimmer h-4 rounded-lg w-5/6" />

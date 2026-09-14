@@ -13,6 +13,7 @@ export type ArtifactType =
   | 'chart'
   | 'mermaid'
   | 'svg'
+  | 'video'
   | 'code';
 
 export interface ArtifactSnapshot {

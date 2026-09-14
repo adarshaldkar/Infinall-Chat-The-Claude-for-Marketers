@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ArtifactSnapshot } from "@/lib/artifacts/types";
 import { ArtifactVersionStore, DiffLine } from "@/lib/artifacts/version-store";
-import { History, X, Check, RotateCcw, Clock } from "lucide-react";
+import { History, X, RotateCcw, Clock } from "lucide-react";
 
 interface VersionHistoryModalProps {
   artifactId: string;
@@ -23,26 +23,37 @@ export default function VersionHistoryModal({
   onRestoreVersion,
 }: VersionHistoryModalProps) {
   const [selectedVersion, setSelectedVersion] = useState<number>(currentVersion);
+  const [snapshots, setSnapshots] = useState<ArtifactSnapshot[]>([]);
+
+  // Load store snapshots after mount/open so impure reads don't run during render.
+  useEffect(() => {
+    if (!isOpen) return;
+    const frame = requestAnimationFrame(() => {
+      const history = ArtifactVersionStore.getHistory(artifactId);
+      setSnapshots(
+        history.length > 0
+          ? history
+          : [{ version: 1, timestamp: Date.now(), content: currentContent, summary: "Initial Generation" }]
+      );
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isOpen, artifactId, currentContent]);
 
   if (!isOpen) return null;
 
-  const history: ArtifactSnapshot[] = ArtifactVersionStore.getHistory(artifactId);
-  // If no snapshots exist in store yet, provide current version as snapshot 1
-  const snapshots =
-    history.length > 0
-      ? history
-      : [{ version: 1, timestamp: Date.now(), content: currentContent, summary: "Initial Generation" }];
-
-  const activeSnapshot = snapshots.find((s) => s.version === selectedVersion) || snapshots[snapshots.length - 1];
+  const activeSnapshot =
+    snapshots.find((s) => s.version === selectedVersion) || snapshots[snapshots.length - 1];
   const previousSnapshot = snapshots.find((s) => s.version === selectedVersion - 1);
 
-  const diff: DiffLine[] = previousSnapshot
-    ? ArtifactVersionStore.computeDiff(previousSnapshot.content, activeSnapshot.content)
-    : activeSnapshot.content.split("\n").map((line, i) => ({
-        type: "added" as const,
-        content: line,
-        lineNumberNew: i + 1,
-      }));
+  const diff: DiffLine[] = activeSnapshot
+    ? previousSnapshot
+      ? ArtifactVersionStore.computeDiff(previousSnapshot.content, activeSnapshot.content)
+      : activeSnapshot.content.split("\n").map((line, i) => ({
+          type: "added" as const,
+          content: line,
+          lineNumberNew: i + 1,
+        }))
+    : [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -124,7 +135,7 @@ export default function VersionHistoryModal({
                 )}
               </div>
 
-              {selectedVersion !== currentVersion && (
+              {selectedVersion !== currentVersion && activeSnapshot && (
                 <button
                   onClick={() => {
                     onRestoreVersion(activeSnapshot.version, activeSnapshot.content);

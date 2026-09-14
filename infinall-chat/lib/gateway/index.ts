@@ -43,3 +43,18 @@ export async function* streamModelTurn(
     yield* streamOpenAI(model, messages, openaiTools, systemPrompt, abortSignal);
   }
 }
+
+export async function generateContinuationResponse(
+  model: ModelCatalogEntry,
+  messages: LLMMessage[],
+  systemPrompt: string
+): Promise<string> {
+  let fullText = '';
+  const controller = new AbortController();
+  for await (const event of streamModelTurn(model, messages, [], systemPrompt, controller.signal)) {
+    if (event.type === 'text_delta') {
+      fullText += event.payload.delta;
+    }
+  }
+  return fullText;
+}

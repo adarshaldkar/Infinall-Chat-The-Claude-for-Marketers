@@ -4,6 +4,7 @@
 // ============================================================
 
 import { defaultToolRateLimiter } from './rate-limiter';
+import { recordToolExecutionMetric } from './health-tracker';
 
 export interface PreToolUseContext {
   toolName: string;
@@ -45,7 +46,9 @@ export async function afterToolExecution(ctx: PostToolUseContext): Promise<unkno
     return ctx.result.slice(0, 25_000) + '\n\n[Warning: Tool output truncated to preserve token budget]';
   }
 
-  // 2. Telemetry logging for observability
+  // 2. Telemetry & live health tracking
+  recordToolExecutionMetric(ctx.toolName, ctx.latencyMs, ctx.isError);
+
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[Tool Audit] ${ctx.toolName} executed in ${ctx.latencyMs}ms (status: ${ctx.isError ? 'ERROR' : 'OK'})`);
   }

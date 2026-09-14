@@ -1,6 +1,7 @@
 // ============================================================
 // MCP Transport: Local Stdio Process Transport
-// Strict executable whitelist to prevent arbitrary command execution
+// Strict executable whitelist + strict environment isolation
+// to prevent credential leakage and arbitrary command execution
 // ============================================================
 
 import { spawn, ChildProcess } from 'child_process';
@@ -12,6 +13,18 @@ const ALLOWED_EXECUTABLES = new Set([
   'python3',
   'uvx',
   'docker',
+]);
+
+// Environment allowlist — strictly limits environment variables passed to child process
+const ALLOWED_ENV_VARS = new Set([
+  'PATH',
+  'NODE_ENV',
+  'HOME',
+  'USERPROFILE',
+  'LANG',
+  'LC_ALL',
+  'TEMP',
+  'TMP',
 ]);
 
 export interface StdioConfig {
@@ -41,12 +54,26 @@ export class StdioTransport {
     this.timeoutMs = config.timeoutMs ?? 20_000;
   }
 
+  private buildSanitizedEnv(): Record<string, string> {
+    const sanitized: Record<string, string> = {};
+    for (const [key, val] of Object.entries(process.env)) {
+      if (ALLOWED_ENV_VARS.has(key) && val !== undefined) {
+        sanitized[key] = val;
+      }
+    }
+    // Inject specifically allowed MCP config env vars
+    for (const [key, val] of Object.entries(this.env)) {
+      sanitized[key] = val;
+    }
+    return sanitized;
+  }
+
   async sendJsonRpc(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     return new Promise((resolve, reject) => {
       let childProc: ChildProcess;
       try {
         childProc = spawn(this.command, this.args, {
-          env: { ...process.env, ...this.env },
+          env: this.buildSanitizedEnv() as unknown as NodeJS.ProcessEnv,
           stdio: ['pipe', 'pipe', 'pipe'],
           shell: false, // Security: never invoke through shell
         });
@@ -96,8 +123,8 @@ export class StdioTransport {
         params,
       }) + '\n';
 
-      process.stdin?.write(requestPayload);
-      process.stdin?.end();
+      childProc.stdin?.write(requestPayload);
+      childProc.stdin?.end();
     });
   }
 }

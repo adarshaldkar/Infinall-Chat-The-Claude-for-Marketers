@@ -8,7 +8,6 @@ import {
   SubagentFinding,
   SubagentProgressEvent,
   SubagentTask,
-  WorkerKind,
 } from './types';
 import { runCompetitorWorker } from './workers/competitor-worker';
 import { runPricingWorker } from './workers/pricing-worker';

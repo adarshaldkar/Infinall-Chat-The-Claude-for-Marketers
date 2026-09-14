@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { SpreadsheetWorkbookPayload, SpreadsheetSheetData } from "@/lib/artifacts/types";
-import { Table, Layers, FileSpreadsheet } from "lucide-react";
+import { Layers, FileSpreadsheet } from "lucide-react";
 
 interface SpreadsheetViewerProps {
   content: string;

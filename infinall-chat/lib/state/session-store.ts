@@ -12,6 +12,7 @@ export interface ChatSession {
   updatedAt: number;
   messages: Message[];
   artifact: Artifact | null;
+  isPinned?: boolean;
 }
 
 const STORAGE_KEY = 'infinall_chat_sessions_v1';
@@ -65,7 +66,7 @@ export function createNewSession(initialTitle?: string): ChatSession {
 
 export function updateSession(
   id: string,
-  updates: Partial<Pick<ChatSession, 'title' | 'messages' | 'artifact'>>
+  updates: Partial<Pick<ChatSession, 'title' | 'messages' | 'artifact' | 'isPinned'>>
 ): void {
   const sessions = getStoredSessions();
   const index = sessions.findIndex((s) => s.id === id);

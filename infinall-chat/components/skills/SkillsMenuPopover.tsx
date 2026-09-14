@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from "react";
 import { BUILTIN_SKILLS } from "@/lib/skills/catalog";
-import { SkillManifest } from "@/lib/skills/types";
 import {
   Megaphone,
   Sparkles,
@@ -48,7 +47,8 @@ export default function SkillsMenuPopover({
   );
 
   useEffect(() => {
-    setSelectedIndex(0);
+    const frame = requestAnimationFrame(() => setSelectedIndex(0));
+    return () => cancelAnimationFrame(frame);
   }, [filterText]);
 
   useEffect(() => {

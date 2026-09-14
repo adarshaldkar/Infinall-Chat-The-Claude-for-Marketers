@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DIRECTORY_TOOLS, ToolCategory, ToolDirectoryItem } from "@/lib/tools/directory-catalog";
 import {
   X,
@@ -10,13 +10,13 @@ import {
   Play,
   Layers,
   Megaphone,
-  Target,
   BarChart2,
   Search as SearchIcon,
   Users,
   Zap,
   Loader2,
   Terminal,
+  Power,
 } from "lucide-react";
 
 interface ToolsDirectoryModalProps {
@@ -44,7 +44,42 @@ export default function ToolsDirectoryModal({
   const [testingToolId, setTestingToolId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ id: string; output: string } | null>(null);
 
+  // Dynamic user-controlled active/mock overrides persisted in localStorage
+  const [activeToolOverrides, setActiveToolOverrides] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      try {
+        const saved = localStorage.getItem("infinall_active_tools");
+        if (saved) {
+          setActiveToolOverrides(JSON.parse(saved));
+        }
+      } catch {}
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  const toggleToolActive = (toolId: string, currentActive: boolean) => {
+    setActiveToolOverrides((prev) => {
+      const next = { ...prev, [toolId]: !currentActive };
+      try {
+        localStorage.setItem("infinall_active_tools", JSON.stringify(next));
+      } catch {}
+      window.dispatchEvent(
+        new CustomEvent("tool-status-changed", { detail: { toolId, active: !currentActive } })
+      );
+      return next;
+    });
+  };
+
   if (!isOpen) return null;
+
+  const getEffectiveIsActive = (tool: ToolDirectoryItem) => {
+    const override = activeToolOverrides[tool.id];
+    return override !== undefined ? override : tool.status === "active";
+  };
+
+  const totalActiveCount = DIRECTORY_TOOLS.filter((t) => getEffectiveIsActive(t)).length;
 
   const filteredTools = DIRECTORY_TOOLS.filter((tool) => {
     const matchesCategory = activeCategory === "all" || tool.category === activeCategory;
@@ -59,17 +94,20 @@ export default function ToolsDirectoryModal({
 
   const handleTestQuery = (tool: ToolDirectoryItem) => {
     setTestingToolId(tool.id);
+    const active = getEffectiveIsActive(tool);
+
     setTimeout(() => {
       setTestResult({
         id: tool.id,
         output: JSON.stringify(
           {
-            status: "success",
-            latencyMs: tool.latencyMs,
+            status: active ? "ACTIVE_MCP_CONNECTED" : "SANDBOX_SIMULATION",
+            mode: active ? "live_agent_ready" : "mock_sandbox",
+            latencyMs: active ? Math.min(tool.latencyMs, 48) : tool.latencyMs,
             server: tool.mcpServer || "infinall-mcp",
             sampleData: {
-              metric: "Telemetry OK",
-              recordsRetrieved: 42,
+              connection: active ? "Live MCP Tunnel Open" : "Mock Telemetry Verified",
+              recordsRetrieved: active ? 128 : 42,
               timestamp: new Date().toISOString(),
             },
           },
@@ -78,13 +116,13 @@ export default function ToolsDirectoryModal({
         ),
       });
       setTestingToolId(null);
-    }, 600);
+    }, 450);
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4">
       <div
-        className="w-full max-w-5xl h-[700px] bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="w-full max-w-5xl h-[720px] bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         style={{ borderColor: "var(--color-border)" }}
       >
         {/* Header */}
@@ -99,12 +137,15 @@ export default function ToolsDirectoryModal({
             <div>
               <h2 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
                 <span>100+ Marketing Tools & MCP Integrations</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/40">
-                  Ecosystem Live
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-800/50">
+                  {totalActiveCount} Active MCP
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-800/50">
+                  {DIRECTORY_TOOLS.length - totalActiveCount} Mock Mode
                 </span>
               </h2>
               <p className="text-xs text-zinc-400">
-                Connected Model Context Protocol servers, adapters, and live telemetry endpoints
+                Click any tool&apos;s badge or switch to dynamically toggle between Active MCP and Mock Mode
               </p>
             </div>
           </div>
@@ -159,15 +200,18 @@ export default function ToolsDirectoryModal({
         <div className="flex-1 overflow-y-auto p-6 bg-zinc-950">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredTools.map((tool) => {
-              const isActive = tool.status === "active";
-              const isMock = tool.status === "mock";
+              const isActive = getEffectiveIsActive(tool);
               const isTesting = testingToolId === tool.id;
               const hasTestOutput = testResult?.id === tool.id;
 
               return (
                 <div
                   key={tool.id}
-                  className="rounded-xl border border-zinc-800/80 bg-zinc-900/30 p-4 flex flex-col justify-between hover:border-zinc-700 transition-all group"
+                  className={`rounded-xl border p-4 flex flex-col justify-between transition-all group ${
+                    isActive
+                      ? "border-emerald-800/40 bg-emerald-950/10 shadow-sm"
+                      : "border-zinc-800/80 bg-zinc-900/30 hover:border-zinc-700"
+                  }`}
                 >
                   <div>
                     {/* Header */}
@@ -182,20 +226,38 @@ export default function ToolsDirectoryModal({
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {isActive && (
-                          <span className="flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
-                            <CheckCircle2 className="w-3 h-3" />
-                            Active MCP
-                          </span>
-                        )}
-                        {isMock && (
-                          <span className="flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-amber-950/60 text-amber-400 border border-amber-800/40">
-                            <AlertTriangle className="w-3 h-3" />
-                            Mock Mode
-                          </span>
-                        )}
+                        {/* Interactive Clickable Badge Switch */}
+                        <button
+                          type="button"
+                          onClick={() => toggleToolActive(tool.id, isActive)}
+                          className={`flex items-center gap-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full transition-all cursor-pointer border ${
+                            isActive
+                              ? "bg-emerald-950/90 hover:bg-emerald-900/90 text-emerald-300 border-emerald-600/50 shadow-sm"
+                              : "bg-amber-950/80 hover:bg-amber-900/80 text-amber-300 border-amber-600/50"
+                          }`}
+                          title={
+                            isActive
+                              ? "Click to switch to Mock Mode"
+                              : "Click to activate as Active MCP"
+                          }
+                        >
+                          {isActive ? (
+                            <>
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              <span>Active MCP</span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
+                            </>
+                          ) : (
+                            <>
+                              <AlertTriangle className="w-3 h-3 text-amber-400" />
+                              <span>Mock Mode</span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 ml-0.5" />
+                            </>
+                          )}
+                        </button>
+
                         <span className="text-[10px] font-mono text-zinc-500">
-                          {tool.latencyMs}ms
+                          {isActive ? Math.min(tool.latencyMs, 48) : tool.latencyMs}ms
                         </span>
                       </div>
                     </div>
@@ -228,26 +290,44 @@ export default function ToolsDirectoryModal({
                         className="text-[11px] text-cyan-400 hover:text-cyan-300 font-medium truncate flex-1 text-left"
                         title={tool.sampleQuery}
                       >
-                        ⚡ Try: "{tool.sampleQuery}"
+                        ⚡ Try: &ldquo;{tool.sampleQuery}&rdquo;
                       </button>
                     ) : (
                       <div className="text-[11px] text-zinc-500 font-mono">
-                        Ready for agent invocation
+                        {isActive ? "Ready for autonomous execution" : "Ready for agent invocation"}
                       </div>
                     )}
 
-                    <button
-                      onClick={() => handleTestQuery(tool)}
-                      disabled={isTesting}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] font-medium shrink-0 transition-colors"
-                    >
-                      {isTesting ? (
-                        <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
-                      ) : (
-                        <Play className="w-3 h-3 text-cyan-400" />
-                      )}
-                      <span>{isTesting ? "Pinging..." : "Ping Tool"}</span>
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {/* Interactive Power / Activate Button */}
+                      <button
+                        type="button"
+                        onClick={() => toggleToolActive(tool.id, isActive)}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all border ${
+                          isActive
+                            ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/40"
+                            : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700"
+                        }`}
+                        title={isActive ? "Click to deactivate" : "Click to activate tool"}
+                      >
+                        <Power className={`w-3 h-3 ${isActive ? "text-emerald-400" : "text-zinc-400"}`} />
+                        <span>{isActive ? "Active" : "Activate"}</span>
+                      </button>
+
+                      {/* Ping Button */}
+                      <button
+                        onClick={() => handleTestQuery(tool)}
+                        disabled={isTesting}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] font-medium shrink-0 transition-colors"
+                      >
+                        {isTesting ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
+                        ) : (
+                          <Play className="w-3 h-3 text-cyan-400" />
+                        )}
+                        <span>{isTesting ? "Testing..." : "Ping"}</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Test Result Output Box */}

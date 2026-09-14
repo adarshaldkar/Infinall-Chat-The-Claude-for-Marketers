@@ -3,7 +3,7 @@
 // Handles streaming for Claude models via the custom proxy.
 // ============================================================
 
-import { LLMMessage, ToolCallRequest, CanonicalSSEEvent } from './types';
+import { LLMMessage, CanonicalSSEEvent } from './types';
 import { ModelCatalogEntry, getApiKey } from './catalog';
 
 export interface AnthropicTool {
@@ -38,11 +38,15 @@ async function* streamAnthropic(
     body.tools = tools;
   }
 
-  // Extended thinking disabled for Phase 1 — proxy may not support thinking blocks
-  // Re-enable when confirmed working:
-  // if (model.supportsExtendedThinking) {
-  //   body.thinking = { type: 'enabled', budget_tokens: 2048 };
-  // }
+  // Extended thinking — config-driven via env. Budget is in tokens.
+  // Enabled by default when the model supports it; disable with ENABLE_EXTENDED_THINKING=false.
+  if (model.supportsExtendedThinking && process.env.ENABLE_EXTENDED_THINKING !== 'false') {
+    const budget = Number(process.env.CLAUDE_THINKING_BUDGET);
+    body.thinking = {
+      type: 'enabled',
+      budget_tokens: Number.isFinite(budget) && budget > 0 ? budget : 2048,
+    };
+  }
 
   const response = await fetch(model.endpoint, {
     method: 'POST',
@@ -173,8 +177,10 @@ async function* streamAnthropic(
           yield {
             type: 'usage_metadata',
             payload: {
-              promptTokens: 0,
+              promptTokens: (usage.input_tokens as number) ?? 0,
               completionTokens: (usage.output_tokens as number) ?? 0,
+              cacheReadTokens: (usage.cache_read_input_tokens as number) ?? 0,
+              cacheWriteTokens: (usage.cache_creation_input_tokens as number) ?? 0,
               model: model.id,
               latencyMs: 0,
             },

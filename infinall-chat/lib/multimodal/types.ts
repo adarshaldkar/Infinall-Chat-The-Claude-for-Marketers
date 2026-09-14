@@ -24,6 +24,10 @@ export interface VisionAuditResult {
   detectedText: string;
   complianceRisks: string[];
   recommendations: string[];
+  /** false when no real vision analysis could be performed (no fabricated scores). */
+  available?: boolean;
+  /** Human-readable explanation when available === false. */
+  unavailableReason?: string;
 }
 
 export interface DocumentParseResult {

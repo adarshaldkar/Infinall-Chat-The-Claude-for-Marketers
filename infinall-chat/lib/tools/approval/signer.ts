@@ -5,7 +5,22 @@
 
 import { createHmac, createHash } from 'crypto';
 
-const SECRET_KEY = process.env.APPROVAL_HMAC_SECRET ?? 'infinall-phase2-default-mutation-secret-key-32b';
+function getSecretKey(): string {
+  const key = process.env.APPROVAL_HMAC_SECRET;
+  if (!key) {
+    if (process.env.NODE_ENV !== 'production') {
+      return 'infinall-dev-local-hmac-secret-key-32-chars-minimum!';
+    }
+    throw new Error(
+      'APPROVAL_HMAC_SECRET environment variable is required and must be set. ' +
+      'Generate one with: openssl rand -hex 32'
+    );
+  }
+  if (key.length < 32) {
+    throw new Error('APPROVAL_HMAC_SECRET must be at least 32 characters long.');
+  }
+  return key;
+}
 
 /**
  * Deterministically sorts object keys recursively to ensure consistent hashing
@@ -45,7 +60,7 @@ export function generateApprovalToken(params: {
   expiresAt: number;
 }): string {
   const payload = `${params.executionId}:${params.sessionId}:${params.toolName}:${params.argsHash}:${params.expiresAt}`;
-  return createHmac('sha256', SECRET_KEY).update(payload).digest('hex');
+  return createHmac('sha256', getSecretKey()).update(payload).digest('hex');
 }
 
 /**

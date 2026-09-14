@@ -4,12 +4,10 @@ import { useState, useCallback, useEffect } from "react";
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "react-resizable-panels";
 import ChatWorkspace from "./ChatWorkspace";
 import ArtifactPanel from "@/components/artifacts/ArtifactPanel";
+import DebugTraceDrawer from "@/components/chat/DebugTraceDrawer";
 import { CanonicalSSEEvent, SourceCitation, MutationDiff } from "@/lib/gateway/types";
 import {
-  ChatSession,
   getStoredSessions,
-  getActiveSessionId,
-  setActiveSessionId,
   createNewSession,
   updateSession,
 } from "@/lib/state/session-store";
@@ -42,6 +40,8 @@ export interface Message {
     argsHash?: string;
   };
   model?: string;
+  variants?: string[];
+  activeVariantIndex?: number;
 }
 
 interface SplitWorkspaceProps {
@@ -63,6 +63,36 @@ export default function SplitWorkspace({
   const [statusMessage, setStatusMessage] = useState("");
   const [sessionTitle, setSessionTitle] = useState("");
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [isDebugDrawerOpen, setIsDebugDrawerOpen] = useState(false);
+
+  // Global Keyboard Shortcuts (Cmd/Ctrl+K, Esc, Cmd/Ctrl+Opt+D)
+  useEffect(() => {
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      // Cmd/Ctrl + K -> New Chat
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        createNewSession("New Chat");
+        onSessionsChange();
+        return;
+      }
+
+      // Esc -> Close Artifact Panel
+      if (e.key === "Escape" && artifact) {
+        setArtifact(null);
+        return;
+      }
+
+      // Cmd/Ctrl + Alt/Opt + D -> Toggle Telemetry Drawer
+      if ((e.metaKey || e.ctrlKey) && (e.altKey || e.shiftKey) && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        setIsDebugDrawerOpen((prev) => !prev);
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [artifact, onSessionsChange]);
 
   // Load active session on mount or when activeSessionId changes
   useEffect(() => {
@@ -95,27 +125,6 @@ export default function SplitWorkspace({
       options?: { isDeepResearch?: boolean; attachments?: Array<{ name: string; extractedText?: string; visionSummary?: { headlineHookScore: number; recommendations: string[] } }> }
     ) => {
       if (isGenerating) return;
-
-      let effectiveContent = userContent;
-      if (options?.isDeepResearch && !effectiveContent.startsWith("/research")) {
-        effectiveContent = `/research ${effectiveContent}`;
-      }
-
-      if (options?.attachments && options.attachments.length > 0) {
-        const attachDescriptions = options.attachments
-          .map((a) => {
-            if (a.visionSummary) {
-              return `[Attached Creative: ${a.name} - Hook Score: ${a.visionSummary.headlineHookScore}/10. Recommendations: ${a.visionSummary.recommendations.join("; ")}]`;
-            }
-            if (a.extractedText) {
-              return `[Attached Document ${a.name}:\n${a.extractedText.slice(0, 1000)}]`;
-            }
-            return `[Attached File: ${a.name}]`;
-          })
-          .join("\n\n");
-
-        effectiveContent = effectiveContent ? `${effectiveContent}\n\n${attachDescriptions}` : attachDescriptions;
-      }
 
       let currentId = activeSessionId;
       // Auto-create session if none active
@@ -163,15 +172,65 @@ export default function SplitWorkspace({
       };
 
       try {
+        // Build the last user message as multimodal content blocks (text + images)
+        type ContentBlock =
+          | { type: 'text'; text: string }
+          | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
+
+        const lastUserBlocks: ContentBlock[] = [];
+
+        // Add text content
+        const effectiveText = userContent || (options?.attachments?.[0]?.name ? `Please analyze: ${options.attachments[0].name}` : 'Analyze the attached file');
+        if (effectiveText) {
+          lastUserBlocks.push({ type: 'text', text: effectiveText });
+        }
+
+        // Add image content blocks for image attachments (real vision)
+        if (options?.attachments) {
+          for (const att of options.attachments) {
+            if ((att as { base64Data?: string; mimeType?: string } & typeof att).base64Data && (att as { mimeType?: string } & typeof att).mimeType?.startsWith('image/')) {
+              const typedAtt = att as { base64Data: string; mimeType: string; name: string };
+              lastUserBlocks.push({
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: typedAtt.mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+                  data: typedAtt.base64Data,
+                },
+              });
+            } else if (att.extractedText) {
+              // Document: inject extracted text as context
+              lastUserBlocks.push({
+                type: 'text',
+                text: `\n\n[Document: ${att.name}]\n${att.extractedText.slice(0, 8000)}`,
+              });
+            } else if (att.visionSummary) {
+              lastUserBlocks.push({
+                type: 'text',
+                text: `\n\n[Creative Analysis: ${att.name}]\nHook Score: ${att.visionSummary.headlineHookScore}/10\nRecommendations: ${att.visionSummary.recommendations.join('; ')}`,
+              });
+            }
+          }
+        }
+
         const history = [
           ...messages.map((m) => ({ role: m.role, content: m.content })),
-          { role: "user" as const, content: effectiveContent },
+          {
+            role: 'user' as const,
+            content: lastUserBlocks.length > 1 ? lastUserBlocks : effectiveText,
+          },
         ];
 
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ messages: history, modelId, sessionId: currentId }),
+        // Deep Research uses dedicated SSE stream endpoint
+        const apiEndpoint = options?.isDeepResearch ? '/api/research/stream' : '/api/chat';
+        const requestBody = options?.isDeepResearch
+          ? JSON.stringify({ prompt: effectiveText, sessionId: currentId })
+          : JSON.stringify({ messages: history, modelId, sessionId: currentId });
+
+        const res = await fetch(apiEndpoint, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: requestBody,
           signal: controller.signal,
         });
 
@@ -342,37 +401,84 @@ export default function SplitWorkspace({
     setAbortController(null);
   }, [abortController]);
 
-  return (
-    <PanelGroup orientation="horizontal" className="h-full">
-      {/* Chat pane */}
-      <Panel defaultSize={artifact ? 50 : 100} minSize={30}>
-        <ChatWorkspace
-          messages={messages}
-          isGenerating={isGenerating}
-          statusMessage={statusMessage}
-          onSendMessage={sendMessage}
-          onStop={stopGeneration}
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={onToggleSidebar}
-          sessionTitle={sessionTitle}
-        />
-      </Panel>
+  const handleSwitchVariant = useCallback((messageId: string, variantIndex: number) => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id === messageId && m.variants && m.variants[variantIndex]) {
+          return {
+            ...m,
+            activeVariantIndex: variantIndex,
+            content: m.variants[variantIndex],
+          };
+        }
+        return m;
+      })
+    );
+  }, []);
 
-      {/* Artifact Drawer Pane */}
-      {artifact && (
-        <>
-          <PanelResizeHandle className="w-1.5 transition-colors bg-zinc-800 hover:bg-amber-500 cursor-col-resize" />
-          <Panel defaultSize={50} minSize={30}>
-            <ArtifactPanel
-              artifact={artifact}
-              onClose={() => setArtifact(null)}
-              onUpdateArtifact={(updated) =>
-                setArtifact((prev) => (prev ? { ...prev, ...updated } : null))
-              }
-            />
-          </Panel>
-        </>
-      )}
-    </PanelGroup>
+  const handleRegenerate = useCallback((messageId: string) => {
+    const msgIndex = messages.findIndex((m) => m.id === messageId);
+    if (msgIndex <= 0) return;
+    const prevUserMsg = messages[msgIndex - 1];
+    if (prevUserMsg && prevUserMsg.role === "user") {
+      const modelToUse = messages[msgIndex]?.model || "claude-sonnet-4-6";
+      sendMessage(prevUserMsg.content, modelToUse);
+    }
+  }, [messages, sendMessage]);
+
+  const handleEditMessage = useCallback((messageId: string, newContent: string) => {
+    const msgIndex = messages.findIndex((m) => m.id === messageId);
+    if (msgIndex === -1) return;
+    const truncated = messages.slice(0, msgIndex);
+    setMessages(truncated);
+    sendMessage(newContent, "auto");
+  }, [messages, sendMessage]);
+
+  return (
+    <div className="relative h-full w-full overflow-hidden">
+      <PanelGroup orientation="horizontal" className="h-full">
+        {/* Chat pane */}
+        <Panel defaultSize={artifact ? 50 : 100} minSize={30}>
+          <ChatWorkspace
+            messages={messages}
+            isGenerating={isGenerating}
+            statusMessage={statusMessage}
+            onSendMessage={sendMessage}
+            onStop={stopGeneration}
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={onToggleSidebar}
+            sessionTitle={sessionTitle}
+            onRegenerate={handleRegenerate}
+            onSwitchVariant={handleSwitchVariant}
+            onEditMessage={handleEditMessage}
+          />
+        </Panel>
+
+        {/* Artifact Drawer Pane */}
+        {artifact && (
+          <>
+            <PanelResizeHandle className="w-1.5 transition-colors bg-zinc-800 hover:bg-amber-500 cursor-col-resize" />
+            <Panel defaultSize={50} minSize={30}>
+              <ArtifactPanel
+                artifact={artifact}
+                onClose={() => setArtifact(null)}
+                onUpdateArtifact={(updated) =>
+                  setArtifact((prev) => (prev ? { ...prev, ...updated } : null))
+                }
+              />
+            </Panel>
+          </>
+        )}
+      </PanelGroup>
+
+      {/* Telemetry Debug Drawer (Cmd+Opt+D) */}
+      <DebugTraceDrawer
+        isOpen={isDebugDrawerOpen}
+        onClose={() => setIsDebugDrawerOpen(false)}
+        activeSessionId={activeSessionId}
+        messageCount={messages.length}
+        hasArtifact={!!artifact}
+      />
+    </div>
   );
 }

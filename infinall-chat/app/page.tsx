@@ -10,6 +10,7 @@ import {
   setActiveSessionId,
   createNewSession,
   deleteStoredSession,
+  updateSession,
 } from "@/lib/state/session-store";
 
 import ToolsDirectoryModal from "@/components/directory/ToolsDirectoryModal";
@@ -35,7 +36,17 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    refreshSessions();
+    // Defer to avoid synchronous setState cascade inside effect
+    const frame = requestAnimationFrame(() => {
+      refreshSessions();
+    });
+
+    const handleOpenTools = () => setIsToolsDirectoryOpen(true);
+    window.addEventListener("open-tools-directory", handleOpenTools);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("open-tools-directory", handleOpenTools);
+    };
   }, [refreshSessions]);
 
   const handleNewChat = () => {
@@ -59,6 +70,19 @@ export default function HomePage() {
     }
   };
 
+  const handleRenameSession = (id: string, newTitle: string) => {
+    updateSession(id, { title: newTitle });
+    refreshSessions();
+  };
+
+  const handlePinSession = (id: string) => {
+    const session = sessions.find((s) => s.id === id);
+    if (session) {
+      updateSession(id, { isPinned: !session.isPinned });
+      refreshSessions();
+    }
+  };
+
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "var(--color-background)" }}>
       <Sidebar
@@ -69,6 +93,8 @@ export default function HomePage() {
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
         onDeleteSession={handleDeleteSession}
+        onRenameSession={handleRenameSession}
+        onPinSession={handlePinSession}
         onOpenToolsDirectory={() => setIsToolsDirectoryOpen(true)}
       />
       <main className="flex-1 min-w-0 overflow-hidden relative">

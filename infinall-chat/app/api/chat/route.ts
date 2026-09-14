@@ -81,13 +81,10 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        // Use user-selected model if specified and valid, otherwise planner recommended model
-        const resolvedModelId =
-          modelId && MODEL_CATALOG[modelId]
-            ? modelId
-            : MODEL_CATALOG[plan.recommended_model]
-            ? plan.recommended_model
-            : DEFAULT_MODEL_ID;
+        // Use planner-recommended model, unless user explicitly selected a real model (not 'auto')
+        const userSelectedModel = (modelId && modelId !== 'auto' && MODEL_CATALOG[modelId]) ? modelId : undefined;
+        const resolvedModelId = userSelectedModel
+          ?? (MODEL_CATALOG[plan.recommended_model] ? plan.recommended_model : DEFAULT_MODEL_ID);
 
         // Step 2: Convert messages to LLMMessage format
         const llmMessages: LLMMessage[] = messages.map((m, idx) => {

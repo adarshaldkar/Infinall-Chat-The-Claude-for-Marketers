@@ -4,9 +4,10 @@
 // 100+ Tools Directory, and Multimodal Vision Engine.
 // ============================================================
 
+import './helpers/env';
 import { SkillResolver } from '../lib/skills/resolver';
-import { BUILTIN_SKILLS } from '../lib/skills/catalog';
 import { ResearchOrchestrator } from '../lib/subagents/orchestrator';
+import { SubagentProgressEvent } from '../lib/subagents/types';
 import { DIRECTORY_TOOLS } from '../lib/tools/directory-catalog';
 import { CreativeVisionAnalyzer } from '../lib/multimodal/vision';
 import { MultimodalDocumentParser } from '../lib/multimodal/parser';
@@ -69,7 +70,7 @@ async function runPhase4Benchmark() {
 
   // --- Test S06: Concurrent Research Execution ---
   console.log('\n--- Test S06: Concurrent Subagent Execution ---');
-  const events: any[] = [];
+  const events: SubagentProgressEvent[] = [];
   for await (const event of ResearchOrchestrator.executeResearch('HubSpot competitive analysis')) {
     events.push(event);
   }
@@ -80,7 +81,7 @@ async function runPhase4Benchmark() {
 
   assert(spawnEvents.length === 3, 'S06.1', '3 subagent spawn events emitted');
   assert(completeEvents.length === 3, 'S06.2', '3 subagents executed and completed concurrently');
-  assert(synthesisComplete !== undefined && synthesisComplete.payload.synthesis.findings.length === 3, 'S06.3', 'Synthesis layer combined all 3 subagent findings');
+  assert(synthesisComplete !== undefined && synthesisComplete.payload.synthesis?.findings.length === 3, 'S06.3', 'Synthesis layer combined all 3 subagent findings');
 
   // --- Test S07: Citation Deduplication ---
   console.log('\n--- Test S07: Citation Deduplication ---');
@@ -106,9 +107,19 @@ async function runPhase4Benchmark() {
 
   // --- Test S10: Multimodal Creative Vision Analyzer ---
   console.log('\n--- Test S10: Multimodal Creative Vision Analyzer ---');
-  const visionAudit = await CreativeVisionAnalyzer.auditCreativeImage('meta_ad_creative_q3.png', 'image/png');
-  assert(visionAudit.headlineHookScore > 7.0, 'S10.1', 'Direct-response headline hook score computed');
-  assert(visionAudit.recommendations.length >= 2, 'S10.2', 'Actionable creative recommendations generated');
+
+  // Real-vision path: with image data + no gateway key, analyzer must NOT fabricate a score.
+  const visionNoKey = await CreativeVisionAnalyzer.auditCreativeImage(
+    'meta_ad_creative_q3.png',
+    'image/png',
+    Buffer.from('a'.repeat(200)).toString('base64')
+  );
+  assert(visionNoKey.available === false, 'S10.1', 'Vision fails closed (available=false) without a configured model');
+  assert(visionNoKey.headlineHookScore === 0, 'S10.2', 'No fabricated headline hook score when analysis unavailable');
+
+  // No image data at all → explicit unavailable state, never generic heuristic numbers.
+  const visionNoImage = await CreativeVisionAnalyzer.auditCreativeImage('banner.jpg', 'image/jpeg');
+  assert(visionNoImage.available === false, 'S10.3', 'Vision reports unavailable when no image data provided');
 
   // --- Test S11: Multimodal Document Parser ---
   console.log('\n--- Test S11: Multimodal Document Parser ---');

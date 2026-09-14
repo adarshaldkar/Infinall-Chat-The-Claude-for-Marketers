@@ -82,7 +82,7 @@ export async function executeWebSearch(args: WebSearchArgs): Promise<WebSearchRe
         sources,
         summary: data.AbstractText || `Found ${sources.length} sources for "${query}"`,
       });
-    } catch (error) {
+    } catch {
       results.push(createFallback(query));
     }
   }
@@ -96,12 +96,13 @@ function createFallback(query: string): WebSearchResult {
     sources: [
       {
         id: 1,
-        title: `Search results for: ${query}`,
-        url: `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-        domain: 'google.com',
-        snippet: `Web search results for "${query}". Click to view full results.`,
+        title: `Live web search unavailable for: ${query}`,
+        url: `https://duckduckgo.com/?q=${encodeURIComponent(query)}`,
+        domain: 'duckduckgo.com',
+        snippet:
+          'Live search endpoint did not return usable results. Open the link to run this query manually. No fabricated results are shown.',
       },
     ],
-    summary: `Search results for "${query}"`,
+    summary: `Web search unavailable for "${query}" — no data fabricated.`,
   };
 }
