@@ -292,15 +292,6 @@ export default function SplitWorkspace({
               });
             }
 
-            if (typedAtt.visionSummary) {
-              const vs = typedAtt.visionSummary;
-              const summaryText = `\n\n[Creative Vision Audit for "${typedAtt.name}":\n- Headline/Hook Score: ${vs.headlineHookScore ?? 'N/A'}/10\n- Visual Contrast: ${vs.visualContrastScore ?? 'N/A'}/10\n- CTA Prominence: ${vs.ctaProminenceScore ?? 'N/A'}/10\n- Primary Focal Point: ${vs.primaryFocalPoint ?? 'N/A'}\n- Detected Visual Elements: ${vs.detectedText ?? 'N/A'}\n- Recommendations: ${(vs.recommendations || []).join('; ')}]`;
-              lastUserBlocks.push({
-                type: 'text',
-                text: summaryText,
-              });
-            }
-
             if (typedAtt.extractedText) {
               lastUserBlocks.push({
                 type: 'text',

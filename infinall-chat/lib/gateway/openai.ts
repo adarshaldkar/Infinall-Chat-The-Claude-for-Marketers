@@ -25,7 +25,7 @@ async function* streamOpenAI(
   const apiKey = getApiKey('openai');
 
   // Convert Anthropic-style messages to OpenAI format
-  const openaiMessages: Array<{ role: string; content: string }> = [];
+  const openaiMessages: Array<{ role: string; content: string | Array<Record<string, unknown>> }> = [];
 
   if (systemPrompt) {
     openaiMessages.push({ role: 'system', content: systemPrompt });
@@ -35,12 +35,20 @@ async function* streamOpenAI(
     if (typeof msg.content === 'string') {
       openaiMessages.push({ role: msg.role, content: msg.content });
     } else {
-      // Flatten content blocks to text for OpenAI
-      const text = msg.content
-        .filter((b) => b.type === 'text')
-        .map((b) => ('text' in b ? b.text : ''))
-        .join('\n');
-      openaiMessages.push({ role: msg.role, content: text });
+      const parts: Array<Record<string, unknown>> = [];
+      for (const b of msg.content) {
+        if (b.type === 'text') {
+          parts.push({ type: 'text', text: b.text });
+        } else if (b.type === 'image') {
+          parts.push({
+            type: 'image_url',
+            image_url: {
+              url: `data:${b.source.media_type};base64,${b.source.data}`,
+            },
+          });
+        }
+      }
+      openaiMessages.push({ role: msg.role, content: parts.length > 0 ? parts : '' });
     }
   }
 

@@ -76,6 +76,11 @@ export async function* runAgentLoop(
   const lastUserMsg = config.messages.filter((m) => m.role === 'user').pop();
   const userText = typeof lastUserMsg?.content === 'string'
     ? lastUserMsg.content
+    : Array.isArray(lastUserMsg?.content)
+    ? (lastUserMsg.content as LLMContentBlock[])
+        .filter((b) => b.type === 'text')
+        .map((b) => ('text' in b ? b.text : ''))
+        .join(' ')
     : '';
 
   const candidateTools = resolveCandidateTools(config.plan.candidate_tools, userText);

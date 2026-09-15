@@ -145,18 +145,8 @@ export async function POST(req: NextRequest) {
           new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Vision timeout')), 8000))
         ]);
       } catch (vErr) {
-        console.warn('[Upload API] Vision analysis skipped or timed out:', vErr);
-        attachment.visionSummary = {
-          summary: `Visual composition analysis for "${fileName}"`,
-          headlineHookScore: 8,
-          visualContrastScore: 8,
-          ctaProminenceScore: 7,
-          primaryFocalPoint: 'Image Visual Composition',
-          detectedText: fileName,
-          complianceRisks: [],
-          recommendations: ['Evaluate mobile contrast ratio', 'Ensure high-resolution asset export'],
-          available: true,
-        };
+        console.warn('[Upload API] Vision pre-analysis skipped or timed out:', vErr);
+        // Do NOT fabricate synthetic scores or inject fake marketing summaries
       }
     } else if (kind === 'video') {
       try {

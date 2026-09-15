@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { runPlanner } from '@/lib/state/planner';
 import { runAgentLoop } from '@/lib/state/agent-loop';
 import { DEFAULT_MODEL_ID, MODEL_CATALOG } from '@/lib/gateway/catalog';
-import { CanonicalSSEEvent, LLMMessage } from '@/lib/gateway/types';
+import { CanonicalSSEEvent, LLMMessage, LLMContentBlock } from '@/lib/gateway/types';
 import { ArtifactInterceptor } from '@/lib/artifacts/interceptor';
 import { SkillResolver } from '@/lib/skills/resolver';
 import { extractSessionFromRequest } from '@/lib/security/auth';
@@ -80,11 +80,37 @@ export async function POST(req: NextRequest) {
 
   const { messages: rawMessages, modelId = DEFAULT_MODEL_ID, sessionId = `session-${session.userId}`, projectId, activeArtifact } = parsed.data;
 
-  // Normalize all message contents to string
-  const messages = rawMessages.map(m => ({
-    role: m.role,
-    content: normalizeContent(m.content),
-  }));
+  // Preserve multimodal content blocks (images, text)
+  const messages: LLMMessage[] = rawMessages.map((m) => {
+    if (typeof m.content === 'string') {
+      return { role: m.role as 'user' | 'assistant', content: m.content };
+    }
+    if (Array.isArray(m.content)) {
+      const blocks: LLMContentBlock[] = [];
+      for (const item of m.content) {
+        if (typeof item === 'string') {
+          blocks.push({ type: 'text', text: item });
+        } else if (item && typeof item === 'object') {
+          const obj = item as Record<string, unknown>;
+          if (obj.type === 'text' && typeof obj.text === 'string') {
+            blocks.push({ type: 'text', text: obj.text });
+          } else if (obj.type === 'image' && obj.source && typeof obj.source === 'object') {
+            const src = obj.source as Record<string, string>;
+            blocks.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: src.media_type || 'image/png',
+                data: src.data || '',
+              },
+            });
+          }
+        }
+      }
+      return { role: m.role as 'user' | 'assistant', content: blocks.length > 0 ? blocks : '' };
+    }
+    return { role: m.role as 'user' | 'assistant', content: String(m.content || '') };
+  });
 
   const abortController = new AbortController();
   req.signal.addEventListener('abort', () => abortController.abort());
@@ -103,7 +129,16 @@ export async function POST(req: NextRequest) {
         // Step 1: Resolve Progressive Skills & Multimodal Context
         enqueue({ type: 'plan_start', payload: { taskId: sessionId } });
 
-        const rawUserMessage = messages[messages.length - 1]?.content ?? '';
+        const lastMsg = messages[messages.length - 1];
+        const rawUserMessage = typeof lastMsg?.content === 'string'
+          ? lastMsg.content
+          : Array.isArray(lastMsg?.content)
+          ? (lastMsg.content as LLMContentBlock[])
+              .filter((b) => b.type === 'text')
+              .map((b) => ('text' in b ? b.text : ''))
+              .join(' ')
+          : '';
+
         const skillResolution = SkillResolver.resolveSkill(rawUserMessage);
         const activeSkill = skillResolution.matchedSkill;
         const cleanedUserMessage = skillResolution.cleanedPrompt;

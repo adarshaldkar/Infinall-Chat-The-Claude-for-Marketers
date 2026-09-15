@@ -85,6 +85,15 @@ export interface LLMTextContent {
   text: string;
 }
 
+export interface LLMImageContent {
+  type: 'image';
+  source: {
+    type: 'base64';
+    media_type: string;
+    data: string;
+  };
+}
+
 export interface LLMToolUseContent {
   type: 'tool_use';
   id: string;
@@ -105,6 +114,7 @@ export interface LLMThinkingContent {
 
 export type LLMContentBlock =
   | LLMTextContent
+  | LLMImageContent
   | LLMToolUseContent
   | LLMToolResultContent
   | LLMThinkingContent;
