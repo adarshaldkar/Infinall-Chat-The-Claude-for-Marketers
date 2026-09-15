@@ -200,15 +200,35 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        const plan = await runPlanner(cleanedUserMessage, modelId);
+        const historySnippet = messages
+          .slice(-4, -1)
+          .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${typeof m.content === 'string' ? m.content.slice(0, 150) : '[multimodal]'}`)
+          .join('\n');
+
+        const plan = await runPlanner(cleanedUserMessage, modelId, {
+          brandContext: projectInstructions,
+          brandMemory: brandMemoryContext,
+          knowledgeContext: ragKnowledgeContext,
+          activeArtifactSummary: activeArtifact ? `${activeArtifact.title} (${activeArtifact.type})` : undefined,
+          chatHistorySnippet: historySnippet,
+        });
+
+        // Automatic skill matching from planner if user did not type a manual slash command
+        let effectiveSkill = activeSkill;
+        if (!effectiveSkill && plan.matched_skill_id) {
+          const autoSkillResolution = SkillResolver.resolveSkill(plan.matched_skill_id);
+          if (autoSkillResolution.matchedSkill) {
+            effectiveSkill = autoSkillResolution.matchedSkill;
+          }
+        }
 
         enqueue({
           type: 'plan_complete',
           payload: {
-            taskType: activeSkill ? activeSkill.category : plan.task_type,
+            taskType: effectiveSkill ? effectiveSkill.category : plan.task_type,
             recommendedModel: plan.recommended_model,
-            candidateTools: activeSkill?.suggestedTools.length ? activeSkill.suggestedTools : plan.candidate_tools,
-            expectedArtifactType: activeSkill?.defaultArtifactType || plan.expected_artifact_type,
+            candidateTools: effectiveSkill?.suggestedTools.length ? effectiveSkill.suggestedTools : plan.candidate_tools,
+            expectedArtifactType: effectiveSkill?.defaultArtifactType || plan.expected_artifact_type,
           },
         });
 
@@ -267,7 +287,7 @@ export async function POST(req: NextRequest) {
           knowledgeContext: ragKnowledgeContext,
           history: llmMessages,
           activeArtifact,
-          toolIndex: activeSkill?.suggestedTools.join(', ') || plan.candidate_tools.join(', '),
+          toolIndex: effectiveSkill?.suggestedTools.join(', ') || plan.candidate_tools.join(', '),
         });
 
         // Step 4: Run autonomous agent loop with artifact interception
@@ -277,10 +297,10 @@ export async function POST(req: NextRequest) {
           {
             selectedModelId: resolvedModelId,
             messages: llmMessages,
-            systemPrompt: [activeSkill?.systemPromptInjection, context.systemPrompt].filter(Boolean).join('\n\n'),
+            systemPrompt: [effectiveSkill?.systemPromptInjection, context.systemPrompt].filter(Boolean).join('\n\n'),
             plan: {
               ...plan,
-              candidate_tools: activeSkill?.suggestedTools.length ? activeSkill.suggestedTools : plan.candidate_tools,
+              candidate_tools: effectiveSkill?.suggestedTools.length ? effectiveSkill.suggestedTools : plan.candidate_tools,
             },
             sessionId,
           },

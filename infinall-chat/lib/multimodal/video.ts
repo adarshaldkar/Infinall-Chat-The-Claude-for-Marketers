@@ -497,15 +497,13 @@ export class VideoProcessor {
       scenes,
       citations,
       marketingSignals:
-        scenes.length > 0
+        scenes.length > 0 && frameAnalyses.length > 0
           ? {
-              hookStrengthScore: frameAnalyses[0]?.hasPersonOnScreen ? 8 : 6,
-              pacingScore: scenes.length >= 3 ? 7 : 5,
               ctaTimestamp: ctaScene?.startSeconds,
               keyTakeaways: frameAnalyses
                 .filter((f) => f.detectedText)
                 .map((f) => f.detectedText!)
-                .slice(0, 3),
+                .slice(0, 5),
             }
           : undefined,
       available: scenes.length > 0,

@@ -1,6 +1,7 @@
 // ============================================================
-// Infinall Chat - Tool Executor Router
-// Routes 100+ marketing tools to real API executors or sandbox engines
+// Infinall Chat - Universal Tool Executor Router
+// Routes 100+ marketing tools to real API executors, MCP adapters,
+// or sandbox domain engines. Never returns fake success on unknown tools.
 // ============================================================
 
 import { executeMetaAdsTool } from './executors/meta-ads';
@@ -9,13 +10,23 @@ import { executeGA4Tool } from './executors/ga4';
 import { executeHubSpotTool } from './executors/hubspot';
 import { executeSlackTool } from './executors/slack';
 import { executeNotionTool } from './executors/notion';
+import { executeWebSearch } from './web-search';
+import { executeFirecrawlScrape } from '@/lib/mcp/adapters/firecrawl-adapter';
 import { CategoryExecutors } from './executors/category-executors';
+import { SourceCitation } from '@/lib/gateway/types';
+
+export interface ToolExecutionResult {
+  success: boolean;
+  result: unknown;
+  isMutation: boolean;
+  sources?: SourceCitation[];
+}
 
 export async function routeAndExecuteTool(
   toolName: string,
   args: Record<string, unknown>,
   accessToken?: string
-): Promise<{ success: boolean; result: unknown; isMutation: boolean }> {
+): Promise<ToolExecutionResult> {
   const isMutation =
     toolName.includes('mutate') ||
     toolName.includes('update') ||
@@ -24,43 +35,78 @@ export async function routeAndExecuteTool(
     toolName.includes('pause') ||
     toolName.includes('post');
 
-  // Meta Ads tools (live adapter)
+  // 1. Web Search & Scraping Builtins
+  if (toolName === 'web_search') {
+    try {
+      const searchRes = await executeWebSearch(args as Parameters<typeof executeWebSearch>[0]);
+      const sources: SourceCitation[] = searchRes.flatMap((r, i) =>
+        r.sources.map((s) => ({ ...s, id: i * 10 + s.id }))
+      );
+      const summary = searchRes.map((r) => `Query: "${r.query}"\n${r.summary}`).join('\n\n');
+      return { success: true, result: summary, isMutation: false, sources };
+    } catch (err) {
+      return {
+        success: false,
+        result: { error: err instanceof Error ? err.message : 'Web search failed' },
+        isMutation: false,
+      };
+    }
+  }
+
+  if (toolName === 'firecrawl_scrape') {
+    try {
+      const scrapeRes = await executeFirecrawlScrape(args as unknown as Parameters<typeof executeFirecrawlScrape>[0]);
+      const sources: SourceCitation[] = [
+        {
+          id: 1,
+          title: scrapeRes.title,
+          url: scrapeRes.url,
+          domain: new URL(scrapeRes.url).hostname,
+          snippet: scrapeRes.markdown.slice(0, 300),
+        },
+      ];
+      return { success: true, result: scrapeRes.markdown, isMutation: false, sources };
+    } catch (err) {
+      return {
+        success: false,
+        result: { error: err instanceof Error ? err.message : 'Firecrawl scrape failed' },
+        isMutation: false,
+      };
+    }
+  }
+
+  // 2. Direct Vendor Adapters (Meta, Google Ads, GA4, HubSpot, Slack, Notion)
   if (toolName.startsWith('meta_') || toolName === 'meta_ads_read' || toolName === 'meta_ads_mutate') {
     const res = await executeMetaAdsTool(toolName, args, accessToken);
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // Google Ads tools (live adapter)
   if (toolName.startsWith('google_ads_') || toolName === 'google_ads_mutate') {
     const res = await executeGoogleAdsTool(toolName, args, accessToken);
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // GA4 / Analytics (live adapter)
   if (toolName.startsWith('ga4_') || toolName === 'ga4_metrics') {
     const res = await executeGA4Tool(toolName, args, accessToken);
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // HubSpot (live adapter)
   if (toolName.startsWith('hubspot_')) {
     const res = await executeHubSpotTool(toolName, args, accessToken);
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // Slack (live adapter)
   if (toolName.startsWith('slack_')) {
     const res = await executeSlackTool(toolName, args, accessToken);
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // Notion (live adapter)
   if (toolName.startsWith('notion_')) {
     const res = await executeNotionTool(toolName, args, accessToken);
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 1. Search & SEO
+  // 3. Search & SEO (Ahrefs, Semrush, GSC, Backlinks)
   if (
     toolName.startsWith('ahrefs_') ||
     toolName.startsWith('semrush_') ||
@@ -73,7 +119,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 2. Paid Media & Ad Networks (LinkedIn, TikTok, Twitter, Pinterest)
+  // 4. Paid Media & Ad Networks (LinkedIn, TikTok, Twitter, Pinterest)
   if (
     toolName.startsWith('tiktok_') ||
     toolName.startsWith('linkedin_') ||
@@ -85,7 +131,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 3. Analytics & Attribution (Mixpanel, PostHog, Amplitude, Heap)
+  // 5. Analytics & Attribution (Mixpanel, PostHog, Amplitude, Heap)
   if (
     toolName.startsWith('mixpanel_') ||
     toolName.startsWith('posthog_') ||
@@ -97,7 +143,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 4. CRM & Lifecycle (Salesforce, Klaviyo, ActiveCampaign, Customer.io)
+  // 6. CRM & Lifecycle (Salesforce, Klaviyo, ActiveCampaign, Customer.io)
   if (
     toolName.startsWith('salesforce_') ||
     toolName.startsWith('klaviyo_') ||
@@ -109,7 +155,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 5. Content & Social (WordPress, Ghost, Buffer, Hootsuite, Sprout)
+  // 7. Content & Social (WordPress, Ghost, Buffer, Hootsuite, Sprout)
   if (
     toolName.startsWith('wordpress_') ||
     toolName.startsWith('ghost_') ||
@@ -122,7 +168,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 6. Email & SMS (Sendgrid, Mailchimp, Twilio, Resend)
+  // 8. Email & SMS (Sendgrid, Mailchimp, Twilio, Resend)
   if (
     toolName.startsWith('sendgrid_') ||
     toolName.startsWith('mailchimp_') ||
@@ -135,7 +181,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 7. Creative & Assets (Figma, Canva, Cloudinary, Midjourney)
+  // 9. Creative & Assets (Figma, Canva, Cloudinary, Midjourney)
   if (
     toolName.startsWith('figma_') ||
     toolName.startsWith('canva_') ||
@@ -148,7 +194,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 8. Collaboration & Project (Asana, Monday, Linear, Trello)
+  // 10. Collaboration & Workflow (Asana, Monday, Linear, Trello)
   if (
     toolName.startsWith('asana_') ||
     toolName.startsWith('monday_') ||
@@ -160,7 +206,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 9. CRO & Testing (Optimizely, VWO, Hotjar, CrazyEgg)
+  // 11. CRO & Testing (Optimizely, VWO, Hotjar, CrazyEgg)
   if (
     toolName.startsWith('optimizely_') ||
     toolName.startsWith('vwo_') ||
@@ -173,7 +219,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 10. E-commerce & Retail (Shopify, Amazon Ads, WooCommerce, BigCommerce)
+  // 12. E-commerce & Retail (Shopify, Amazon Ads, WooCommerce, BigCommerce)
   if (
     toolName.startsWith('shopify_') ||
     toolName.startsWith('amazon_ads_') ||
@@ -186,7 +232,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 11. Influencer & Affiliate (Impact, Grin, AspireIQ, Upfluence)
+  // 13. Influencer & Affiliate (Impact, Grin, AspireIQ, Upfluence)
   if (
     toolName.startsWith('impact_') ||
     toolName.startsWith('grin_') ||
@@ -199,7 +245,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 12. Market Intelligence (BuiltWith, Clearbit, SimilarWeb, ZoomInfo)
+  // 14. Market Intelligence (BuiltWith, Clearbit, SimilarWeb, ZoomInfo)
   if (
     toolName.startsWith('builtwith_') ||
     toolName.startsWith('clearbit_') ||
@@ -211,7 +257,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 13. Customer Support & Feedback (Zendesk, Intercom, Typeform, SurveyMonkey)
+  // 15. Customer Support & Feedback (Zendesk, Intercom, Typeform, SurveyMonkey)
   if (
     toolName.startsWith('zendesk_') ||
     toolName.startsWith('intercom_') ||
@@ -224,7 +270,7 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 14. Cloud Storage & Data Warehouse (Drive, Dropbox, Snowflake, BigQuery)
+  // 16. Cloud Storage & Data Warehouse (Drive, Dropbox, Snowflake, BigQuery)
   if (
     toolName.startsWith('drive_') ||
     toolName.startsWith('dropbox_') ||
@@ -237,15 +283,12 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // Fallback domain-aware executor
+  // STRICT HONEST FAILURE: Unknown tools return an explicit error, NEVER synthetic success
   return {
-    success: true,
+    success: false,
     result: {
-      toolName,
-      status: 'EXECUTED_SUCCESSFULLY',
-      executedAt: new Date().toISOString(),
-      parametersReceived: args,
-      summary: `Tool ${toolName} completed with output parameters.`,
+      error: `Tool "${toolName}" is not implemented or not recognized in the active MCP/Tool registry.`,
+      code: 'TOOL_NOT_IMPLEMENTED',
     },
     isMutation,
   };

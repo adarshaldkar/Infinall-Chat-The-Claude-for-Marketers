@@ -40,11 +40,15 @@ export interface PlanningContext {
   chatHistorySnippet?: string;
   connectedTools?: string[];
   activeArtifactSummary?: string;
+  knowledgeContext?: string;
+  brandMemory?: string;
+  multimodalContext?: string;
+  availableSkills?: string[];
 }
 
 export function buildPlannerSystemPrompt(skillsManifestsSummary: string, toolsSummary: string): string {
   return `You are the Infinall Chat autonomous planning engine.
-Your task is to analyze the user's incoming marketing brief and output a single, strictly valid JSON plan.
+Your task is to analyze the user's incoming marketing brief, Brand Brain context, conversation history, and connected tool capabilities to output a single, strictly valid JSON plan.
 You do NOT generate the final marketing answer — you only classify, route, and select tools/skills.
 
 Available Marketing Skills Catalog:
@@ -93,19 +97,34 @@ export async function runPlanner(
 ): Promise<PlannerOutput> {
   const skills = SkillResolver.getAllManifests();
   const skillsSummary = skills
-    .slice(0, 15)
+    .slice(0, 20)
     .map((s) => `- ${s.slug}: ${s.name} (${s.description})`)
     .join('\n');
 
-  const toolsSummary = DIRECTORY_TOOLS.slice(0, 30)
-    .map((t) => `- ${t.id}: ${t.name} (${t.category})`)
-    .join('\n');
+  const toolsSummary = (context?.connectedTools && context.connectedTools.length > 0)
+    ? context.connectedTools.map((t) => `- ${t}`).join('\n')
+    : DIRECTORY_TOOLS.slice(0, 30)
+        .map((t) => `- ${t.id}: ${t.name} (${t.category})`)
+        .join('\n');
 
   const prompt = buildPlannerSystemPrompt(skillsSummary, toolsSummary);
 
+  let contextBlock = '';
+  if (context?.brandContext) contextBlock += `\n<brand_context>\n${context.brandContext}\n</brand_context>`;
+  if (context?.brandMemory) contextBlock += `\n<memory_context>\n${context.brandMemory}\n</memory_context>`;
+  if (context?.knowledgeContext) contextBlock += `\n<knowledge_context>\n${context.knowledgeContext}\n</knowledge_context>`;
+  if (context?.connectedTools?.length) contextBlock += `\n<connected_tools>\n${context.connectedTools.join(', ')}\n</connected_tools>`;
+  if (context?.activeArtifactSummary) contextBlock += `\n<active_artifact>\n${context.activeArtifactSummary}\n</active_artifact>`;
+  if (context?.multimodalContext) contextBlock += `\n<multimodal_context>\n${context.multimodalContext}\n</multimodal_context>`;
+  if (context?.chatHistorySnippet) contextBlock += `\n<chat_history>\n${context.chatHistorySnippet}\n</chat_history>`;
+
+  const plannerUserContent = contextBlock 
+    ? `${contextBlock}\n\nUser Marketing Brief:\n${userMessage}` 
+    : userMessage;
+
   const apiKey = process.env.LLM_GATEWAY_API_KEY;
   if (!apiKey) {
-    return deterministicPlannerFallback(userMessage, userSelectedModelId);
+    return deterministicPlannerFallback(userMessage, userSelectedModelId, context);
   }
 
   const base = process.env.LLM_GATEWAY_BASE_URL ?? 'https://llm.ganeshnayak.in';
@@ -122,13 +141,13 @@ export async function runPlanner(
         model: PLANNER_MODEL,
         max_tokens: 512,
         system: prompt,
-        messages: [{ role: 'user', content: userMessage }],
+        messages: [{ role: 'user', content: plannerUserContent }],
       }),
       signal: AbortSignal.timeout(6000),
     });
 
     if (!res.ok) {
-      return deterministicPlannerFallback(userMessage, userSelectedModelId);
+      return deterministicPlannerFallback(userMessage, userSelectedModelId, context);
     }
 
     const data = await res.json();
@@ -150,16 +169,16 @@ export async function runPlanner(
       }
       return plan;
     }
-  } catch {
-    // Fall back gracefully
+    return deterministicPlannerFallback(userMessage, userSelectedModelId, context);
+  } catch (_) {
+    return deterministicPlannerFallback(userMessage, userSelectedModelId, context);
   }
-
-  return deterministicPlannerFallback(userMessage, userSelectedModelId);
 }
 
 export function deterministicPlannerFallback(
   userMessage: string,
-  userSelectedModelId?: string
+  userSelectedModelId?: string,
+  context?: PlanningContext
 ): PlannerOutput {
   const lower = userMessage.toLowerCase();
 

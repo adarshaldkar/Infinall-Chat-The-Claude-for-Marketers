@@ -16,6 +16,7 @@ import { MultimodalGateway } from '@/lib/multimodal/gateway';
 import { ParserRegistry } from '@/lib/ingestion/registry';
 import { extractSessionFromRequest } from '@/lib/security/auth';
 import { ingestDocument } from '@/lib/rag/ingestion';
+import { getSupabaseServerClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
@@ -108,9 +109,37 @@ export async function POST(req: NextRequest) {
     // Read full buffer
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Save to public uploads folder for direct hosting & preview
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+    // 1. Upload to Supabase Storage if configured
+    const supabase = getSupabaseServerClient();
     const safeDiskName = `${Date.now()}_${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    let safeUrl = `/uploads/${safeDiskName}`;
+    let storagePath: string | undefined;
+
+    if (supabase) {
+      try {
+        const bucket = 'chat-attachments';
+        const storageFileKey = `${session.userId}/${safeDiskName}`;
+        const { data: uploadData, error: uploadErr } = await supabase.storage
+          .from(bucket)
+          .upload(storageFileKey, buffer, {
+            contentType: mimeType,
+            upsert: true,
+          });
+
+        if (!uploadErr && uploadData) {
+          storagePath = uploadData.path;
+          const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(storageFileKey);
+          if (urlData?.publicUrl) {
+            safeUrl = urlData.publicUrl;
+          }
+        }
+      } catch (storageErr) {
+        console.warn('[Upload API] Supabase storage upload warning (using local fallback):', storageErr);
+      }
+    }
+
+    // 2. Also save to local public uploads folder as offline fallback & preview
+    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
     try {
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });
@@ -121,7 +150,6 @@ export async function POST(req: NextRequest) {
       console.warn('[Upload API] Could not write to disk uploads folder:', diskErr);
     }
 
-    const safeUrl = `/uploads/${safeDiskName}`;
     const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     
     const attachment: UploadedAttachment = {
@@ -131,6 +159,8 @@ export async function POST(req: NextRequest) {
       mimeType,
       sizeBytes,
       url: safeUrl,
+      storagePath,
+      storageBucket: storagePath ? 'chat-attachments' : undefined,
     };
 
     if (kind === 'image') {

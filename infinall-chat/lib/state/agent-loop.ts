@@ -12,10 +12,7 @@ import { DEFAULT_AGENT_POLICY, AgentPolicy } from './policy';
 import { isMutationTool, validateToolArgs } from '../tools/registry';
 import { resolveCandidateTools } from '../tools/search';
 import { beforeToolExecution, afterToolExecution } from '../tools/hooks';
-import { executeWebSearch } from '../tools/web-search';
-import { executeFirecrawlScrape } from '../mcp/adapters/firecrawl-adapter';
-import { executeGA4Metrics } from '../mcp/adapters/ga4-adapter';
-import { executeMetaAdsRead } from '../mcp/adapters/meta-ads-adapter';
+import { routeAndExecuteTool } from '../tools/executor-router';
 import { createApproval } from '../tools/approval/store';
 
 export interface AgentLoopConfig {
@@ -263,26 +260,9 @@ export async function* runAgentLoop(
           try {
             // 2. Validate tool arguments with Zod
             const validatedArgs = validateToolArgs(tc.toolName, tc.args);
-            let rawResult: unknown;
-            let sources: SourceCitation[] = [];
-
-            if (tc.toolName === 'web_search') {
-              const searchRes = await executeWebSearch(validatedArgs as unknown as Parameters<typeof executeWebSearch>[0]);
-              sources = searchRes.flatMap((r, i) => r.sources.map((s) => ({ ...s, id: i * 10 + s.id })));
-              rawResult = searchRes.map((r) => `Query: "${r.query}"\n${r.summary}`).join('\n\n');
-            } else if (tc.toolName === 'firecrawl_scrape') {
-              const scrapeRes = await executeFirecrawlScrape(validatedArgs as unknown as Parameters<typeof executeFirecrawlScrape>[0]);
-              sources = [{ id: 1, title: scrapeRes.title, url: scrapeRes.url, domain: new URL(scrapeRes.url).hostname, snippet: scrapeRes.markdown.slice(0, 300) }];
-              rawResult = scrapeRes.markdown;
-            } else if (tc.toolName === 'ga4_metrics') {
-              const ga4Res = await executeGA4Metrics(validatedArgs as unknown as Parameters<typeof executeGA4Metrics>[0]);
-              rawResult = JSON.stringify(ga4Res, null, 2);
-            } else if (tc.toolName === 'meta_ads_read') {
-              const metaRes = await executeMetaAdsRead(validatedArgs as unknown as Parameters<typeof executeMetaAdsRead>[0]);
-              rawResult = JSON.stringify(metaRes, null, 2);
-            } else {
-              rawResult = { error: `Tool ${tc.toolName} not supported.` };
-            }
+            const execution = await routeAndExecuteTool(tc.toolName, validatedArgs as Record<string, unknown>);
+            const rawResult = execution.result;
+            const sources = execution.sources || [];
 
             // 3. PostToolUse lifecycle hook
             const finalResult = await afterToolExecution({

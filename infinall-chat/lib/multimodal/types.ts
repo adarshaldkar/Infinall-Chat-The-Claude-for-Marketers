@@ -31,6 +31,8 @@ export interface UploadedAttachment {
     height?: number;
     format?: string;
   };
+  storagePath?: string;
+  storageBucket?: string;
 }
 
 // ── Structured Multimodal Analysis ───────────────────────────

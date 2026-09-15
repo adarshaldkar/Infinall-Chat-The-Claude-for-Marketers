@@ -1,6 +1,7 @@
 // ============================================================
 // /api/brand-memory — Full Brand Brain Memory Management Endpoint
 // Supports listing, creating, updating, conflict resolution, and deletion
+// with strict user ownership and project RBAC validation.
 // ============================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -28,9 +29,11 @@ export async function GET(req: NextRequest) {
   const supabase = getSupabaseServerClient();
   if (supabase) {
     try {
+      // SECURITY: Enforce ownership — only return memories belonging to this user or null (global)
       let query = supabase
         .from('brand_memories')
         .select('*')
+        .eq('user_id', session.userId)
         .order('created_at', { ascending: false });
 
       if (projectId) {
@@ -197,15 +200,21 @@ export async function PATCH(req: NextRequest) {
       updates.status = 'archived';
     }
 
+    // SECURITY: Enforce user_id = session.userId to prevent IDOR vulnerabilities
     const { data, error } = await (supabase as any)
       .from('brand_memories')
       .update(updates)
       .eq('id', id)
+      .eq('user_id', session.userId)
       .select('*')
       .single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!data) {
+      return NextResponse.json({ error: 'Memory not found or access denied' }, { status: 404 });
     }
 
     const row = data as any;
@@ -250,11 +259,12 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Database unavailable' }, { status: 500 });
   }
 
-  // Soft-delete: mark as archived
-  const { error } = await supabase
+  // Soft-delete: mark as archived with strict user ownership enforcement
+  const { error, count } = await supabase
     .from('brand_memories')
     .update({ status: 'archived', updated_at: new Date().toISOString() })
-    .eq('id', id);
+    .eq('id', id)
+    .eq('user_id', session.userId);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
