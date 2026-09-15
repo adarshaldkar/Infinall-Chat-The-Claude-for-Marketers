@@ -1,16 +1,21 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from "react-resizable-panels";
 import ChatWorkspace from "./ChatWorkspace";
 import ArtifactPanel from "@/components/artifacts/ArtifactPanel";
 import DebugTraceDrawer from "@/components/chat/DebugTraceDrawer";
 import { CanonicalSSEEvent, SourceCitation, MutationDiff } from "@/lib/gateway/types";
+import { SubagentProgressEvent } from "@/lib/subagents/types";
+import { ResearchWorkerStatus } from "@/components/research/ResearchProgressTree";
 import {
   getStoredSessions,
   createNewSession,
   updateSession,
+  persistRemoteSession,
+  WorkspaceProject,
 } from "@/lib/state/session-store";
+import { UploadedAttachment } from "@/lib/multimodal/types";
 
 export interface Artifact {
   id: string;
@@ -42,12 +47,19 @@ export interface Message {
   model?: string;
   variants?: string[];
   activeVariantIndex?: number;
+  researchWorkers?: ResearchWorkerStatus[];
+  researchSynthesizing?: boolean;
+  researchComplete?: boolean;
 }
 
 interface SplitWorkspaceProps {
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
   activeSessionId: string | null;
+  onSelectSession?: (id: string) => void;
+  projects?: WorkspaceProject[];
+  activeProjectId?: string | null;
+  onProjectChange?: (id: string | null) => void;
   onSessionsChange: () => void;
 }
 
@@ -55,15 +67,38 @@ export default function SplitWorkspace({
   sidebarOpen,
   onToggleSidebar,
   activeSessionId,
+  onSelectSession,
+  projects = [],
+  activeProjectId = null,
+  onProjectChange,
   onSessionsChange,
 }: SplitWorkspaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [artifact, setArtifact] = useState<Artifact | null>(null);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null);
+  const loadedSessionIdRef = useRef<string | null>(null);
+  const artifact = artifacts.find((item) => item.id === activeArtifactId) ?? null;
+  const setArtifact = (value: Artifact | null | ((previous: Artifact | null) => Artifact | null)) => {
+    const previous = artifacts.find((item) => item.id === activeArtifactId) ?? null;
+    const next = typeof value === "function" ? value(previous) : value;
+    if (!next) {
+      setArtifacts((current) => current.filter((item) => item.id !== activeArtifactId));
+      setActiveArtifactId((current) => {
+        const remaining = artifacts.filter((item) => item.id !== current);
+        return remaining[0]?.id ?? null;
+      });
+      return;
+    }
+    setArtifacts((current) => current.some((item) => item.id === next.id) ? current.map((item) => item.id === next.id ? next : item) : [...current, next]);
+    setActiveArtifactId(next.id);
+  };
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [sessionTitle, setSessionTitle] = useState("");
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [isDebugDrawerOpen, setIsDebugDrawerOpen] = useState(false);
+  const [activeVideo, setActiveVideo] = useState<{ url: string; title: string; scenes?: any[]; citations?: any[] } | null>(null);
+  const [telemetry, setTelemetry] = useState({ promptTokens: 0, completionTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, latencyMs: 0, toolCalls: 0 });
 
   // Global Keyboard Shortcuts (Cmd/Ctrl+K, Esc, Cmd/Ctrl+Opt+D)
   useEffect(() => {
@@ -71,7 +106,8 @@ export default function SplitWorkspace({
       // Cmd/Ctrl + K -> New Chat
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        createNewSession("New Chat");
+        const newSess = createNewSession("New Chat");
+        onSelectSession?.(newSess.id);
         onSessionsChange();
         return;
       }
@@ -92,13 +128,15 @@ export default function SplitWorkspace({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [artifact, onSessionsChange]);
+  }, [artifact, onSessionsChange, onSelectSession]);
 
   // Load active session on mount or when activeSessionId changes
   useEffect(() => {
     if (!activeSessionId) {
+      loadedSessionIdRef.current = null;
       setMessages([]);
-      setArtifact(null);
+      setArtifacts([]);
+      setActiveArtifactId(null);
       setSessionTitle("");
       return;
     }
@@ -106,23 +144,51 @@ export default function SplitWorkspace({
     const sessions = getStoredSessions();
     const current = sessions.find((s) => s.id === activeSessionId);
     if (current) {
-      setMessages(current.messages);
-      setArtifact(current.artifact);
-      setSessionTitle(current.title);
+      loadedSessionIdRef.current = current.id;
+      setMessages(current.messages || []);
+      const restoredArtifacts = current.artifacts ?? (current.artifact ? [current.artifact] : []);
+      setArtifacts(restoredArtifacts);
+      setActiveArtifactId(restoredArtifacts[0]?.id ?? null);
+      setSessionTitle(current.title || "");
+    } else {
+      // Load fallback from Supabase API
+      fetch(`/api/sessions`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          const found = data?.sessions?.find((s: { id: string }) => s.id === activeSessionId);
+          if (found) {
+            loadedSessionIdRef.current = found.id;
+            setMessages(found.messages || []);
+            const restoredArtifacts = found.artifacts ?? (found.artifact ? [found.artifact] : []);
+            setArtifacts(restoredArtifacts);
+            setActiveArtifactId(restoredArtifacts[0]?.id ?? null);
+            setSessionTitle(found.title || "");
+          }
+        })
+        .catch(() => undefined);
     }
   }, [activeSessionId]);
 
   // Persist messages & artifact to session store whenever they change
   useEffect(() => {
-    if (!activeSessionId || isGenerating) return;
-    updateSession(activeSessionId, { messages, artifact });
-  }, [messages, artifact, activeSessionId, isGenerating]);
+    if (!activeSessionId || isGenerating || loadedSessionIdRef.current !== activeSessionId) return;
+    
+    // Guard: Prevent wiping existing stored messages if current state is empty
+    const existing = getStoredSessions().find((s) => s.id === activeSessionId);
+    if (existing && existing.messages.length > 0 && messages.length === 0) {
+      return;
+    }
+
+    updateSession(activeSessionId, { messages, artifact, artifacts });
+    const current = getStoredSessions().find((session) => session.id === activeSessionId);
+    if (current) void persistRemoteSession(current);
+  }, [messages, artifact, artifacts, activeSessionId, isGenerating]);
 
   const sendMessage = useCallback(
     async (
       userContent: string,
       modelId: string,
-      options?: { isDeepResearch?: boolean; attachments?: Array<{ name: string; extractedText?: string; visionSummary?: { headlineHookScore: number; recommendations: string[] } }> }
+      options?: { isDeepResearch?: boolean; attachments?: UploadedAttachment[] }
     ) => {
       if (isGenerating) return;
 
@@ -132,7 +198,9 @@ export default function SplitWorkspace({
         const title = userContent.length > 35 ? userContent.slice(0, 35) + "..." : userContent || "New Strategy Chat";
         const newSession = createNewSession(title);
         currentId = newSession.id;
+        loadedSessionIdRef.current = currentId;
         setSessionTitle(title);
+        onSelectSession?.(currentId);
         onSessionsChange();
       } else if (messages.length === 0) {
         const title = userContent.length > 35 ? userContent.slice(0, 35) + "..." : userContent || "New Strategy Chat";
@@ -155,6 +223,9 @@ export default function SplitWorkspace({
         thinking: "",
         thinkingDone: false,
         toolCalls: [],
+        ...(options?.isDeepResearch
+          ? { researchWorkers: [], researchSynthesizing: false, researchComplete: false }
+          : {}),
       };
 
       const nextMessages = [...messages, userMessage, assistantMessage];
@@ -172,12 +243,11 @@ export default function SplitWorkspace({
       };
 
       try {
-        // Build the last user message as multimodal content blocks (text + images)
-        type ContentBlock =
+        // Build the last user message as multimodal content blocks
+        const lastUserBlocks: Array<
           | { type: 'text'; text: string }
-          | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
-
-        const lastUserBlocks: ContentBlock[] = [];
+          | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+        > = [];
 
         // Add text content
         const effectiveText = userContent || (options?.attachments?.[0]?.name ? `Please analyze: ${options.attachments[0].name}` : 'Analyze the attached file');
@@ -185,29 +255,56 @@ export default function SplitWorkspace({
           lastUserBlocks.push({ type: 'text', text: effectiveText });
         }
 
-        // Add image content blocks for image attachments (real vision)
-        if (options?.attachments) {
+        // Handle multimodal attachments (Images, Videos, Documents, Audio)
+        if (options?.attachments && options.attachments.length > 0) {
           for (const att of options.attachments) {
-            if ((att as { base64Data?: string; mimeType?: string } & typeof att).base64Data && (att as { mimeType?: string } & typeof att).mimeType?.startsWith('image/')) {
-              const typedAtt = att as { base64Data: string; mimeType: string; name: string };
+            const typedAtt = att as {
+              id?: string;
+              base64Data?: string;
+              mimeType?: string;
+              name: string;
+              kind?: string;
+              url?: string;
+              extractedText?: string;
+              visionSummary?: any;
+              videoAnalysis?: any;
+            };
+
+            // If video attached, activate inline interactive video player
+            if (typedAtt.kind === 'video' && typedAtt.url) {
+              setActiveVideo({
+                url: typedAtt.url,
+                title: typedAtt.name,
+                scenes: typedAtt.videoAnalysis?.scenes,
+                citations: typedAtt.videoAnalysis?.citations,
+              });
+            }
+            
+            if (typedAtt.base64Data && typedAtt.mimeType?.startsWith('image/')) {
+              const cleanBase64 = typedAtt.base64Data.replace(/^data:image\/[a-z0-9.+_-]+;base64,/, '');
               lastUserBlocks.push({
                 type: 'image',
                 source: {
                   type: 'base64',
                   media_type: typedAtt.mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-                  data: typedAtt.base64Data,
+                  data: cleanBase64,
                 },
               });
-            } else if (att.extractedText) {
-              // Document: inject extracted text as context
+            }
+
+            if (typedAtt.visionSummary) {
+              const vs = typedAtt.visionSummary;
+              const summaryText = `\n\n[Creative Vision Audit for "${typedAtt.name}":\n- Headline/Hook Score: ${vs.headlineHookScore ?? 'N/A'}/10\n- Visual Contrast: ${vs.visualContrastScore ?? 'N/A'}/10\n- CTA Prominence: ${vs.ctaProminenceScore ?? 'N/A'}/10\n- Primary Focal Point: ${vs.primaryFocalPoint ?? 'N/A'}\n- Detected Visual Elements: ${vs.detectedText ?? 'N/A'}\n- Recommendations: ${(vs.recommendations || []).join('; ')}]`;
               lastUserBlocks.push({
                 type: 'text',
-                text: `\n\n[Document: ${att.name}]\n${att.extractedText.slice(0, 8000)}`,
+                text: summaryText,
               });
-            } else if (att.visionSummary) {
+            }
+
+            if (typedAtt.extractedText) {
               lastUserBlocks.push({
                 type: 'text',
-                text: `\n\n[Creative Analysis: ${att.name}]\nHook Score: ${att.visionSummary.headlineHookScore}/10\nRecommendations: ${att.visionSummary.recommendations.join('; ')}`,
+                text: `\n\n[Asset Content: "${typedAtt.name}"]\n${typedAtt.extractedText.slice(0, 10000)}`,
               });
             }
           }
@@ -225,7 +322,7 @@ export default function SplitWorkspace({
         const apiEndpoint = options?.isDeepResearch ? '/api/research/stream' : '/api/chat';
         const requestBody = options?.isDeepResearch
           ? JSON.stringify({ prompt: effectiveText, sessionId: currentId })
-          : JSON.stringify({ messages: history, modelId, sessionId: currentId });
+          : JSON.stringify({ messages: history, modelId, sessionId: currentId, projectId: activeProjectId || undefined, activeArtifact: artifact });
 
         const res = await fetch(apiEndpoint, {
           method: 'POST',
@@ -251,7 +348,7 @@ export default function SplitWorkspace({
             const data = line.slice(6).trim();
             if (!data || data === "[DONE]") continue;
 
-            let event: CanonicalSSEEvent;
+            let event: CanonicalSSEEvent | SubagentProgressEvent;
             try {
               event = JSON.parse(data);
             } catch {
@@ -280,6 +377,7 @@ export default function SplitWorkspace({
 
               case "tool_call_start":
                 setStatusMessage(`Executing ${event.payload.toolName}...`);
+                setTelemetry((current) => ({ ...current, toolCalls: current.toolCalls + 1 }));
                 updateAssistant((msg) => ({
                   ...msg,
                   toolCalls: [
@@ -290,6 +388,17 @@ export default function SplitWorkspace({
                       queries: event.payload.query ? [event.payload.query] : [],
                     },
                   ],
+                }));
+                break;
+
+              case "usage_metadata":
+                setTelemetry((current) => ({
+                  ...current,
+                  promptTokens: event.payload.promptTokens,
+                  completionTokens: event.payload.completionTokens,
+                  cacheReadTokens: event.payload.cacheReadTokens ?? 0,
+                  cacheWriteTokens: event.payload.cacheWriteTokens ?? 0,
+                  latencyMs: event.payload.latencyMs,
                 }));
                 break;
 
@@ -357,6 +466,81 @@ export default function SplitWorkspace({
                     message: event.payload.message,
                     recoverable: event.payload.recoverable,
                   },
+                }));
+                break;
+
+              case "subagent_spawn":
+                setStatusMessage(event.payload.stepMessage ?? "Spawning research agent...");
+                updateAssistant((msg) => ({
+                  ...msg,
+                  researchWorkers: [
+                    ...(msg.researchWorkers ?? []),
+                    {
+                      id: event.payload.subagentId,
+                      name: event.payload.taskName ?? "Research Agent",
+                      workerKind: event.payload.workerKind ?? "general",
+                      status: "pending",
+                      stepMessage: event.payload.stepMessage,
+                    },
+                  ],
+                }));
+                break;
+
+              case "subagent_progress":
+                updateAssistant((msg) => ({
+                  ...msg,
+                  researchWorkers: (msg.researchWorkers ?? []).map((w) =>
+                    w.id === event.payload.subagentId
+                      ? { ...w, status: "running", stepMessage: event.payload.stepMessage ?? w.stepMessage }
+                      : w
+                  ),
+                }));
+                break;
+
+              case "subagent_complete":
+                setStatusMessage("Subagent finished, consolidating...");
+                updateAssistant((msg) => ({
+                  ...msg,
+                  researchWorkers: (msg.researchWorkers ?? []).map((w) =>
+                    w.id === event.payload.subagentId
+                      ? { ...w, status: "done", stepMessage: event.payload.stepMessage, finding: event.payload.finding }
+                      : w
+                  ),
+                }));
+                break;
+
+              case "subagent_error":
+                updateAssistant((msg) => ({
+                  ...msg,
+                  researchWorkers: (msg.researchWorkers ?? []).map((w) =>
+                    w.id === event.payload.subagentId ||
+                      (event.payload.subagentId === "master-orchestrator" && w.status !== "done")
+                      ? { ...w, status: "error", error: event.payload.error }
+                      : w
+                  ),
+                  error:
+                    event.payload.subagentId === "master-orchestrator"
+                      ? { message: event.payload.error ?? "Research failed", recoverable: true }
+                      : msg.error,
+                }));
+                break;
+
+              case "synthesis_start":
+                setStatusMessage(event.payload.stepMessage ?? "Synthesizing research findings...");
+                updateAssistant((msg) => ({ ...msg, researchSynthesizing: true }));
+                break;
+
+              case "synthesis_complete":
+                setStatusMessage("");
+                const synthesisSummary = event.payload.synthesis?.summary ?? "";
+                updateAssistant((msg) => ({
+                  ...msg,
+                  researchSynthesizing: false,
+                  researchComplete: true,
+                  content: msg.content
+                    ? `${msg.content}\n\n${synthesisSummary}`
+                    : synthesisSummary,
+                  thinkingDone: true,
                 }));
                 break;
 
@@ -441,6 +625,10 @@ export default function SplitWorkspace({
         <Panel defaultSize={artifact ? 50 : 100} minSize={30}>
           <ChatWorkspace
             messages={messages}
+            activeSessionId={activeSessionId}
+            projects={projects}
+            activeProjectId={activeProjectId}
+            onProjectChange={onProjectChange}
             isGenerating={isGenerating}
             statusMessage={statusMessage}
             onSendMessage={sendMessage}
@@ -451,6 +639,7 @@ export default function SplitWorkspace({
             onRegenerate={handleRegenerate}
             onSwitchVariant={handleSwitchVariant}
             onEditMessage={handleEditMessage}
+            activeVideo={activeVideo}
           />
         </Panel>
 
@@ -461,7 +650,11 @@ export default function SplitWorkspace({
             <Panel defaultSize={50} minSize={30}>
               <ArtifactPanel
                 artifact={artifact}
+                sessionId={activeSessionId}
                 onClose={() => setArtifact(null)}
+                artifacts={artifacts}
+                activeArtifactId={activeArtifactId}
+                onSelectArtifact={setActiveArtifactId}
                 onUpdateArtifact={(updated) =>
                   setArtifact((prev) => (prev ? { ...prev, ...updated } : null))
                 }
@@ -478,6 +671,7 @@ export default function SplitWorkspace({
         activeSessionId={activeSessionId}
         messageCount={messages.length}
         hasArtifact={!!artifact}
+        telemetry={telemetry}
       />
     </div>
   );

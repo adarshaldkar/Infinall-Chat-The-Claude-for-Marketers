@@ -5,13 +5,13 @@
 // ============================================================
 
 import './helpers/env';
-import { ArtifactInterceptor } from '../lib/artifacts/interceptor';
-import { ArtifactVersionStore } from '../lib/artifacts/version-store';
-import { DocxBuilder } from '../lib/artifacts/generators/docx-builder';
-import { XlsxBuilder } from '../lib/artifacts/generators/xlsx-builder';
-import { PptxBuilder } from '../lib/artifacts/generators/pptx-builder';
-import { PdfBuilder } from '../lib/artifacts/generators/pdf-builder';
-import { renderMarkdownToHtml } from '../lib/utils/markdown';
+import { ArtifactInterceptor } from '@/lib/artifacts/interceptor';
+import { ArtifactVersionStore } from '@/lib/artifacts/version-store';
+import { DocxBuilder } from '@/lib/artifacts/generators/docx-builder';
+import { XlsxBuilder } from '@/lib/artifacts/generators/xlsx-builder';
+import { PptxBuilder } from '@/lib/artifacts/generators/pptx-builder';
+import { PdfBuilder } from '@/lib/artifacts/generators/pdf-builder';
+import { renderMarkdownToHtml } from '@/lib/utils/markdown';
 
 let passedCount = 0;
 let totalCount = 0;

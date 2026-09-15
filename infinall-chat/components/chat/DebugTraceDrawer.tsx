@@ -10,6 +10,14 @@ interface DebugTraceDrawerProps {
   messageCount: number;
   hasArtifact: boolean;
   modelInUse?: string;
+  telemetry?: {
+    promptTokens: number;
+    completionTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    latencyMs: number;
+    toolCalls: number;
+  };
 }
 
 export default function DebugTraceDrawer({
@@ -19,6 +27,7 @@ export default function DebugTraceDrawer({
   messageCount,
   hasArtifact,
   modelInUse = "claude-sonnet-4-6",
+  telemetry,
 }: DebugTraceDrawerProps) {
   if (!isOpen) return null;
 
@@ -65,7 +74,9 @@ export default function DebugTraceDrawer({
             <Zap className="w-3.5 h-3.5 text-cyan-400" />
             <span className="text-zinc-400">Cache Control:</span>
           </div>
-          <span className="font-mono text-cyan-300 font-medium">Ephemeral 5-Min Warm</span>
+          <span className="font-mono text-cyan-300 font-medium">
+            {telemetry ? `${telemetry.cacheReadTokens.toLocaleString()} read / ${telemetry.cacheWriteTokens.toLocaleString()} write` : "No request yet"}
+          </span>
         </div>
 
         {/* Session Stats */}
@@ -74,6 +85,9 @@ export default function DebugTraceDrawer({
             <span className="text-zinc-500">Session ID:</span>
             <span className="text-zinc-300 truncate max-w-[180px]">{activeSessionId || "None"}</span>
           </div>
+          <div className="flex justify-between"><span className="text-zinc-500">Prompt tokens:</span><span className="text-zinc-200">{telemetry?.promptTokens ?? 0}</span></div>
+          <div className="flex justify-between"><span className="text-zinc-500">Completion tokens:</span><span className="text-zinc-200">{telemetry?.completionTokens ?? 0}</span></div>
+          <div className="flex justify-between"><span className="text-zinc-500">Tool calls:</span><span className="text-zinc-200">{telemetry?.toolCalls ?? 0}</span></div>
           <div className="flex justify-between">
             <span className="text-zinc-500">Messages in Context:</span>
             <span className="text-zinc-200">{messageCount}</span>
@@ -91,10 +105,10 @@ export default function DebugTraceDrawer({
         </div>
 
         <div className="flex items-center justify-between text-[10px] text-zinc-500 pt-1">
-          <span>Latency: ~340ms TTFT</span>
+          <span>Latency: {telemetry?.latencyMs ?? 0}ms</span>
           <span className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-            Stream Nominal
+            {telemetry ? "Request measured" : "Waiting for request"}
           </span>
         </div>
       </div>

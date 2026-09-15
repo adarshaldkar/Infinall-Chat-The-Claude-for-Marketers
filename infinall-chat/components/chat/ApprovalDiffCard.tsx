@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { AlertTriangle, Check, X, Clock, MessageSquare, Send } from "lucide-react";
 
 interface ApprovalDiffCardProps {
+  sessionId: string | null;
   approval: {
     executionId: string;
     toolName: string;
@@ -21,7 +22,7 @@ interface ApprovalDiffCardProps {
   };
 }
 
-export default function ApprovalDiffCard({ approval }: ApprovalDiffCardProps) {
+export default function ApprovalDiffCard({ approval, sessionId }: ApprovalDiffCardProps) {
   const [status, setStatus] = useState<"pending" | "approved" | "rejected">("pending");
   const [loading, setLoading] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -58,7 +59,7 @@ export default function ApprovalDiffCard({ approval }: ApprovalDiffCardProps) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           executionId: approval.executionId,
-          sessionId: "session-1",
+          sessionId: sessionId ?? "",
           argsHash: approval.argsHash ?? "",
           action: "approve",
         }),
@@ -81,7 +82,7 @@ export default function ApprovalDiffCard({ approval }: ApprovalDiffCardProps) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           executionId: approval.executionId,
-          sessionId: "session-1",
+          sessionId: sessionId ?? "",
           reason: reason || feedbackText,
         }),
       });

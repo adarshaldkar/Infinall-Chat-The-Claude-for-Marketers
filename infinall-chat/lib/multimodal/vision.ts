@@ -86,6 +86,7 @@ export class CreativeVisionAnalyzer {
 
 function unavailable(unavailableReason: string): VisionAuditResult {
   return {
+    summary: 'Visual analysis unavailable',
     headlineHookScore: 0,
     visualContrastScore: 0,
     ctaProminenceScore: 0,

@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { consumeApproval } from '@/lib/tools/approval/store';
+import { consumeApproval, rejectApproval } from '@/lib/tools/approval/store';
 import { executeMetaAdsMutate } from '@/lib/mcp/adapters/meta-ads-adapter';
 import { executeGoogleAdsMutate } from '@/lib/mcp/adapters/google-ads-adapter';
 import { extractSessionFromRequest, checkPermission } from '@/lib/security/auth';
@@ -23,6 +23,7 @@ const ResumeSchema = z.object({
   sessionId: z.string(),
   argsHash: z.string(),
   action: z.enum(['approve', 'reject']),
+  reason: z.string().optional(),
   modelId: z.string().optional(),
   history: z.array(z.object({
     role: z.enum(['user', 'assistant']),
@@ -43,17 +44,60 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.message }, { status: 400 });
   }
 
-  const { executionId, sessionId, argsHash, action, modelId = DEFAULT_MODEL_ID, history = [] } = parsed.data;
+  const { executionId, sessionId, argsHash, action, reason, modelId = DEFAULT_MODEL_ID, history = [] } = parsed.data;
 
   // RBAC Permission Check
-  const userSession = extractSessionFromRequest(req);
+  const userSession = await extractSessionFromRequest(req);
+  if (!userSession) {
+    return NextResponse.json({ error: 'AUTHENTICATION_REQUIRED' }, { status: 401 });
+  }
   const permission = checkPermission(userSession, 'canApprove');
   if (!permission.allowed) {
     return NextResponse.json({ error: permission.reason }, { status: 403 });
   }
 
   if (action === 'reject') {
-    return NextResponse.json({ status: 'rejected', executionId });
+    const rejection = rejectApproval(executionId, sessionId, reason);
+    if (!rejection.ok) {
+      return NextResponse.json({ error: 'APPROVAL_NOT_FOUND_OR_EXPIRED' }, { status: 404 });
+    }
+
+    const record = rejection.record;
+    const toolName = record?.toolName || 'mutation_tool';
+    const actionSummary = record?.actionSummary || 'proposed mutation';
+    const userReason = reason || 'Operator rejected the proposed mutation.';
+
+    // Genuinely replan with the LLM to provide alternative strategy
+    const model = getModel(modelId);
+    const replanMessages: LLMMessage[] = [
+      ...history.map((m) => ({
+        role: m.role,
+        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      })),
+      {
+        role: 'user',
+        content: `[MUTATION_REJECTED_BY_OPERATOR]\nTool: ${toolName}\nAction: ${actionSummary}\nRejection Reason: "${userReason}"\n\nPlease acknowledge this rejection graciously, keep settings unchanged, and propose an alternative strategy.`,
+      },
+    ];
+
+    let alternativePlan = '';
+    try {
+      alternativePlan = await generateContinuationResponse(
+        model,
+        replanMessages,
+        'You are Infinall Chat. The operator rejected the proposed mutation. Acknowledge this graciously and deliver a solid alternative strategy that does not require direct mutation.'
+      );
+    } catch {
+      alternativePlan = `### 🛑 Mutation Cancelled & Replanned\n\n**Action Cancelled:** ${actionSummary}\n**Reason:** ${userReason}\n\n**Alternative Recommended Action:**\n- Live campaigns remain untouched.\n- Changes recorded in session history for offline review.`;
+    }
+
+    return NextResponse.json({
+      status: 'rejected',
+      executionId,
+      reason: userReason,
+      replanned: true,
+      alternativePlan,
+    });
   }
 
   // Cryptographic single-use token and canonical argument verification

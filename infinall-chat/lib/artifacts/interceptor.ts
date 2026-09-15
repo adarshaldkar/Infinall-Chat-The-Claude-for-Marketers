@@ -68,6 +68,8 @@ export class ArtifactInterceptor {
             'docx',
             'pptx',
             'xlsx',
+            'pdf',
+            'video',
             'chart',
             'mermaid',
             'svg',
@@ -110,7 +112,7 @@ export class ArtifactInterceptor {
             payload: {
               id,
               title,
-              type: type as 'html' | 'react' | 'markdown' | 'docx' | 'pptx' | 'xlsx',
+              type: type as ArtifactType,
               language,
             },
           });

@@ -11,35 +11,68 @@ import {
   createNewSession,
   deleteStoredSession,
   updateSession,
+  loadRemoteSessions,
+  persistRemoteSession,
+  deleteRemoteSession,
+  WorkspaceProject,
 } from "@/lib/state/session-store";
 
 import ToolsDirectoryModal from "@/components/directory/ToolsDirectoryModal";
+import { KnowledgeBaseModal } from "@/components/knowledge/KnowledgeBaseModal";
+import { MemoryViewerModal } from "@/components/knowledge/MemoryViewerModal";
+import ProjectManager from "@/components/projects/ProjectManager";
 
 export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveId] = useState<string | null>(null);
   const [isToolsDirectoryOpen, setIsToolsDirectoryOpen] = useState(false);
+  const [isKnowledgeBaseOpen, setIsKnowledgeBaseOpen] = useState(false);
+  const [isBrandMemoryOpen, setIsBrandMemoryOpen] = useState(false);
+  const [projects, setProjects] = useState<WorkspaceProject[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
 
-  const refreshSessions = useCallback(() => {
+  const refreshSessions = useCallback(async () => {
     const stored = getStoredSessions();
     setSessions(stored);
-    const active = getActiveSessionId();
-    if (active && stored.some((s) => s.id === active)) {
-      setActiveId(active);
-    } else if (stored.length > 0) {
+    
+    // Determine active session ID
+    const currentActive = getActiveSessionId();
+    if (currentActive && stored.some((s) => s.id === currentActive)) {
+      setActiveId(currentActive);
+    } else if (!activeSessionId && stored.length > 0) {
       setActiveId(stored[0].id);
       setActiveSessionId(stored[0].id);
-    } else {
-      setActiveId(null);
     }
-  }, []);
+
+    try {
+      const remote = await loadRemoteSessions();
+      if (remote && Array.isArray(remote)) {
+        setSessions(remote);
+        const activeAfterRemote = getActiveSessionId();
+        if (activeAfterRemote && remote.some((s) => s.id === activeAfterRemote)) {
+          setActiveId(activeAfterRemote);
+        } else if (!activeSessionId && remote.length > 0) {
+          setActiveId(remote[0].id);
+          setActiveSessionId(remote[0].id);
+        }
+      }
+    } catch {
+      // Ignore remote sync failure, local storage is reliable
+    }
+  }, [activeSessionId]);
 
   useEffect(() => {
     // Defer to avoid synchronous setState cascade inside effect
     const frame = requestAnimationFrame(() => {
       refreshSessions();
     });
+
+    fetch("/api/projects")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data: { projects?: WorkspaceProject[] } | null) => setProjects(data?.projects ?? []))
+      .catch(() => setProjects([]));
 
     const handleOpenTools = () => setIsToolsDirectoryOpen(true);
     window.addEventListener("open-tools-directory", handleOpenTools);
@@ -53,6 +86,7 @@ export default function HomePage() {
     const newSession = createNewSession("New Chat");
     setSessions(getStoredSessions());
     setActiveId(newSession.id);
+    void persistRemoteSession(newSession);
   };
 
   const handleSelectSession = (id: string) => {
@@ -62,6 +96,7 @@ export default function HomePage() {
 
   const handleDeleteSession = (id: string) => {
     const remaining = deleteStoredSession(id);
+    void deleteRemoteSession(id);
     setSessions(remaining);
     if (activeSessionId === id) {
       const nextActive = remaining.length > 0 ? remaining[0].id : null;
@@ -96,12 +131,19 @@ export default function HomePage() {
         onRenameSession={handleRenameSession}
         onPinSession={handlePinSession}
         onOpenToolsDirectory={() => setIsToolsDirectoryOpen(true)}
+        onOpenKnowledgeBase={() => setIsKnowledgeBaseOpen(true)}
+        onOpenBrandMemory={() => setIsBrandMemoryOpen(true)}
       />
       <main className="flex-1 min-w-0 overflow-hidden relative">
+        <button onClick={() => setIsProjectManagerOpen(true)} className="absolute right-4 top-3 z-20 rounded-lg border border-zinc-700 bg-zinc-900/90 px-3 py-1.5 text-[11px] font-medium text-zinc-300 shadow-lg hover:border-cyan-500/50 hover:text-cyan-300">Manage projects</button>
         <SplitWorkspace
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((p) => !p)}
           activeSessionId={activeSessionId}
+          onSelectSession={handleSelectSession}
+          projects={projects}
+          activeProjectId={activeProjectId}
+          onProjectChange={setActiveProjectId}
           onSessionsChange={refreshSessions}
         />
       </main>
@@ -110,6 +152,25 @@ export default function HomePage() {
       <ToolsDirectoryModal
         isOpen={isToolsDirectoryOpen}
         onClose={() => setIsToolsDirectoryOpen(false)}
+      />
+
+      {/* Knowledge Base & pgvector Multi-Format Modal */}
+      <KnowledgeBaseModal
+        isOpen={isKnowledgeBaseOpen}
+        onClose={() => setIsKnowledgeBaseOpen(false)}
+      />
+
+      {/* Brand Memory & Continuity Modal */}
+      <MemoryViewerModal
+        isOpen={isBrandMemoryOpen}
+        onClose={() => setIsBrandMemoryOpen(false)}
+      />
+
+      <ProjectManager
+        isOpen={isProjectManagerOpen}
+        projects={projects}
+        onClose={() => setIsProjectManagerOpen(false)}
+        onProjectsChange={(next) => setProjects(next)}
       />
     </div>
   );

@@ -50,8 +50,12 @@ export default function ExportMenuDropdown({
   const handleExportGoogleDrive = async () => {
     try {
       setIsSyncingDrive(true);
-      // Simulate OAuth Drive sync / save deliverable
-      await new Promise((resolve) => setTimeout(resolve, 900));
+      const res = await fetch("/api/artifacts/handoff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "google_drive", artifactId, title, type, content }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Google Drive handoff failed");
       setDriveSynced(true);
       setTimeout(() => {
         setDriveSynced(false);
@@ -59,6 +63,7 @@ export default function ExportMenuDropdown({
       }, 2000);
     } catch (err) {
       console.error("Google Drive sync error:", err);
+      window.alert(err instanceof Error ? err.message : "Google Drive handoff failed");
     } finally {
       setIsSyncingDrive(false);
     }
@@ -67,8 +72,12 @@ export default function ExportMenuDropdown({
   const handleSendApprovalCenter = async () => {
     try {
       setIsSendingApproval(true);
-      // Route deliverable to Infinall Approval Center with cryptographic audit log
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      const res = await fetch("/api/artifacts/handoff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "approval_center", artifactId, title, type, content }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Approval Center handoff failed");
       setApprovalSent(true);
       setTimeout(() => {
         setApprovalSent(false);
@@ -76,6 +85,7 @@ export default function ExportMenuDropdown({
       }, 2000);
     } catch (err) {
       console.error("Approval routing error:", err);
+      window.alert(err instanceof Error ? err.message : "Approval Center handoff failed");
     } finally {
       setIsSendingApproval(false);
     }

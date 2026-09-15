@@ -107,7 +107,7 @@ export async function* runAgentLoop(
       model,
       currentMessages,
       candidateToolSchemas,
-      INFINALL_SYSTEM_PROMPT,
+      `${INFINALL_SYSTEM_PROMPT}\n\n${config.systemPrompt}`,
       signal
     )) {
       yield event; // pass event through to the SSE stream
@@ -176,6 +176,7 @@ export async function* runAgentLoop(
               actionSummary: approval.actionSummary,
               diff: approval.diff,
               expiresAt: approval.expiresAt,
+              argsHash: approval.argsHash,
             },
           };
         } catch (err) {

@@ -6,12 +6,15 @@ import ToolAccordion from "./ToolAccordion";
 import ApprovalDiffCard from "./ApprovalDiffCard";
 import ErrorBanner from "./ErrorBanner";
 import CitationBadge from "./CitationBadge";
-import { Copy, RefreshCw, Cpu, ChevronLeft, ChevronRight } from "lucide-react";
+import ResearchProgressTree from "@/components/research/ResearchProgressTree";
+import { Copy, RefreshCw, Cpu, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { useState, useMemo } from "react";
 import { renderMarkdownToHtml } from "@/lib/utils/markdown";
+import ExportModal from "./ExportModal";
 
 interface AssistantMessageProps {
   message: Message;
+  activeSessionId: string | null;
   isGenerating: boolean;
   statusMessage: string;
   onRegenerate?: (messageId: string) => void;
@@ -20,12 +23,14 @@ interface AssistantMessageProps {
 
 export default function AssistantMessage({
   message,
+  activeSessionId,
   isGenerating,
   statusMessage,
   onRegenerate,
   onSwitchVariant,
 }: AssistantMessageProps) {
   const [copied, setCopied] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content);
@@ -62,6 +67,15 @@ export default function AssistantMessage({
         />
       )}
 
+      {/* Deep research multi-agent progress tree */}
+      {(message.researchWorkers ?? []).length > 0 && (
+        <ResearchProgressTree
+          workers={message.researchWorkers ?? []}
+          isSynthesizing={message.researchSynthesizing}
+          isComplete={message.researchComplete}
+        />
+      )}
+
       {/* Tool activity accordions */}
       {(message.toolCalls ?? []).length > 0 && (
         <div className="space-y-2">
@@ -81,7 +95,7 @@ export default function AssistantMessage({
 
       {/* Approval diff card */}
       {message.approvalRequired && (
-        <ApprovalDiffCard approval={message.approvalRequired} />
+        <ApprovalDiffCard sessionId={activeSessionId} approval={message.approvalRequired} />
       )}
 
       {/* Assistant response text */}
@@ -106,7 +120,7 @@ export default function AssistantMessage({
               <span className="text-[11px] text-zinc-500 font-medium">Verified Citations:</span>
               {allSources.map((source, idx) => (
                 <CitationBadge
-                  key={source.id || idx}
+                  key={`citation-${message.id}-${idx}-${source.url}`}
                   index={idx + 1}
                   url={source.url}
                   title={source.title}
@@ -147,22 +161,33 @@ export default function AssistantMessage({
 
               <button
                 onClick={handleCopy}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800 transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors border border-zinc-800/80 shadow-sm"
                 style={{ background: "var(--color-card)" }}
               >
-                <Copy className="w-3 h-3" />
+                <Copy className="w-3 h-3 text-zinc-400" />
                 {copied ? "Copied!" : "Copy"}
+              </button>
+
+              {/* Message Export Option */}
+              <button
+                onClick={() => setIsExportModalOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg hover:bg-zinc-800 text-zinc-300 hover:text-cyan-400 transition-colors border border-zinc-800/80 shadow-sm"
+                style={{ background: "var(--color-card)" }}
+                title="Export deliverable (PDF, Word, PPTX, HTML, Markdown)"
+              >
+                <Download className="w-3 h-3 text-cyan-400" />
+                <span>Export</span>
               </button>
 
               {onRegenerate && (
                 <button
                   onClick={() => onRegenerate(message.id)}
                   disabled={isGenerating}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800 disabled:opacity-50 transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg hover:bg-zinc-800 disabled:opacity-50 text-zinc-300 hover:text-white transition-colors border border-zinc-800/80 shadow-sm"
                   style={{ background: "var(--color-card)" }}
                   title="Generate alternative response (creates new branch)"
                 >
-                  <RefreshCw className="w-3 h-3" />
+                  <RefreshCw className="w-3 h-3 text-zinc-400" />
                   Retry
                 </button>
               )}
@@ -177,6 +202,14 @@ export default function AssistantMessage({
               )}
             </div>
           )}
+
+          {/* Export Modal */}
+          <ExportModal
+            isOpen={isExportModalOpen}
+            onClose={() => setIsExportModalOpen(false)}
+            title="Strategic_Intelligence_Brief"
+            content={currentContent}
+          />
         </div>
       )}
     </div>

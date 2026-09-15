@@ -15,6 +15,8 @@ import {
   Check,
   X,
   FileDown,
+  Database,
+  Brain,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChatSession } from "@/lib/state/session-store";
@@ -30,6 +32,8 @@ interface SidebarProps {
   onRenameSession?: (id: string, newTitle: string) => void;
   onPinSession?: (id: string) => void;
   onOpenToolsDirectory?: () => void;
+  onOpenKnowledgeBase?: () => void;
+  onOpenBrandMemory?: () => void;
 }
 
 export default function Sidebar({
@@ -43,6 +47,8 @@ export default function Sidebar({
   onRenameSession,
   onPinSession,
   onOpenToolsDirectory,
+  onOpenKnowledgeBase,
+  onOpenBrandMemory,
 }: SidebarProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
@@ -305,10 +311,26 @@ export default function Sidebar({
             <span>Tools & Integrations</span>
           </button>
           <button
+            onClick={onOpenKnowledgeBase}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover:bg-zinc-800/60"
             style={{ color: "var(--color-text-muted)" }}
           >
-            <MessageSquare className="w-4 h-4 text-amber-400" />
+            <Database className="w-4 h-4 text-amber-400" />
+            <span>Knowledge Base & VectorDB</span>
+          </button>
+          <button
+            onClick={onOpenBrandMemory}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover:bg-zinc-800/60"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            <Brain className="w-4 h-4 text-purple-400" />
+            <span>Brand Memory & Continuity</span>
+          </button>
+          <button
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover:bg-zinc-800/60"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            <MessageSquare className="w-4 h-4 text-emerald-400" />
             <span>Marketing Projects</span>
           </button>
         </div>

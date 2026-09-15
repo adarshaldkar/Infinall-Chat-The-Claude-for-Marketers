@@ -42,7 +42,10 @@ export async function POST(req: NextRequest) {
   const { executionId, sessionId, reason, modelId = DEFAULT_MODEL_ID, history = [] } = parsed.data;
 
   // RBAC Permission Check
-  const userSession = extractSessionFromRequest(req);
+  const userSession = await extractSessionFromRequest(req);
+  if (!userSession) {
+    return NextResponse.json({ error: 'AUTHENTICATION_REQUIRED' }, { status: 401 });
+  }
   const permission = checkPermission(userSession, 'canApprove');
   if (!permission.allowed) {
     return NextResponse.json({ error: permission.reason }, { status: 403 });

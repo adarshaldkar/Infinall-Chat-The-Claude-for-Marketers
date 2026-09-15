@@ -65,40 +65,73 @@ export default function AttachMenuPopover({
 
   // Real-time Screen Capture
   const handleCaptureScreenshot = async () => {
-    try {
-      setIsCapturing(true);
-      if (!navigator.mediaDevices?.getDisplayMedia) {
-        alert("Screen capture is not supported in this browser.");
-        return;
-      }
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      alert("Screen capture is not supported in this browser.");
+      return;
+    }
 
-      const stream = await navigator.mediaDevices.getDisplayMedia({
+    setIsCapturing(true);
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: "browser" } as MediaTrackConstraints,
       });
 
       const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
       video.srcObject = stream;
-      await video.play();
+      video.play().catch(() => {});
+
+      // Wait until the stream has real dimensions before attempting to draw
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, 3000);
+        const tick = () => {
+          if (video.videoWidth > 0 && video.videoHeight > 0) {
+            clearTimeout(timeout);
+            resolve();
+          } else {
+            requestAnimationFrame(tick);
+          }
+        };
+        tick();
+      });
+
+      // Wait for at least one decoded frame so the canvas isn't blank
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, 2000);
+        if (typeof (video as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number }).requestVideoFrameCallback === "function") {
+          (video as HTMLVideoElement & { requestVideoFrameCallback: (cb: () => void) => number }).requestVideoFrameCallback(() => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        } else {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }
+      });
 
       const canvas = document.createElement("canvas");
       canvas.width = video.videoWidth || 1280;
       canvas.height = video.videoHeight || 720;
       const ctx = canvas.getContext("2d");
-      ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      if (!ctx) throw new Error("Could not initialise 2D canvas context");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
       stream.getTracks().forEach((track) => track.stop());
+      stream = null;
 
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const file = new File([blob], `screenshot_${Date.now()}.png`, { type: "image/png" });
-          onAttachScreenshot(file);
-        }
-      }, "image/png");
-
-      setIsOpen(false);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (blob) {
+        const file = new File([blob], `screenshot_${Date.now()}.png`, { type: "image/png" });
+        onAttachScreenshot(file);
+        setIsOpen(false);
+      }
     } catch (err) {
-      console.warn("Screenshot capture cancelled or failed:", err);
+      if ((err as DOMException)?.name !== "NotAllowedError") {
+        alert(err instanceof Error ? err.message : "Screen capture failed. If it keeps happening, try selecting a window instead of the whole browser tab.");
+      }
     } finally {
+      stream?.getTracks().forEach((track) => track.stop());
       setIsCapturing(false);
     }
   };

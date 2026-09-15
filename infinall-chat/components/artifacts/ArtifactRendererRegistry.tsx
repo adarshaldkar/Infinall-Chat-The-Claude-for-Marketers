@@ -10,6 +10,7 @@ import CodeEditorRenderer from "./renderers/CodeEditorRenderer";
 import SvgViewer from "./renderers/SvgViewer";
 import VideoPlayerRenderer from "./renderers/VideoPlayerRenderer";
 import PresentationViewer from "./renderers/PresentationViewer";
+import PdfArtifactRenderer from "./renderers/PdfArtifactRenderer";
 
 interface ArtifactRendererRegistryProps {
   id: string;
@@ -49,7 +50,6 @@ export default function ArtifactRendererRegistry({
 
     case "markdown":
     case "docx":
-    case "pdf":
       return (
         <MarkdownDocumentEditor
           content={content}
@@ -57,6 +57,9 @@ export default function ArtifactRendererRegistry({
           onContentChange={onContentChange}
         />
       );
+
+    case "pdf":
+      return <PdfArtifactRenderer title={type} content={content} />;
 
     case "pptx":
       return <PresentationViewer content={content} isStreaming={isStreaming} />;

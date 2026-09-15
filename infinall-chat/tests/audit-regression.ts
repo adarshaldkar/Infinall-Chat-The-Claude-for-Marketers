@@ -53,6 +53,10 @@ async function runAuditRegression() {
   const consumeAfterReject = consumeApproval(approval.executionId, 'session-test-01', approval.argsHash);
   assert(!consumeAfterReject.ok, 'Rejection: Cannot consume a rejected approval');
 
+  const secondApproval = createApproval('meta_ads_mutate', { campaignId: 'c456', budget: 2500 }, 'session-test-01');
+  const secondReject = rejectApproval(secondApproval.executionId, 'session-test-01', 'Needs finance review');
+  assert(secondReject.ok && secondReject.record?.status === 'rejected', 'Rejection: Resume-equivalent rejection records durable status');
+
   // --- 4. RBAC & Identity Permissions ---
   console.log('--- Test 4: Role-Based Access Control (RBAC) ---');
   const adminCheck = checkPermission({ userId: 'u1', name: 'Admin', email: 'a@in.ai', orgId: 'o1', role: 'admin' }, 'canApprove');

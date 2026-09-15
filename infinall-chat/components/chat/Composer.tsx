@@ -395,7 +395,7 @@ const SpeechRecognition =
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,.pdf,.docx,.csv"
+        accept="image/*,video/*,audio/*,.mp4,.webm,.mov,.mkv,.avi,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.tsv,.md,.markdown,.txt,.json"
         className="hidden"
         onChange={handleFileUpload}
       />

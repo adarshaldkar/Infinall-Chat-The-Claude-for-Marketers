@@ -11,6 +11,25 @@ export interface PdfOptions {
   content: string;
 }
 
+function sanitizeTextForPdf(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/[—–]/g, '-')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/…/g, '...')
+    .replace(/•/g, '-')
+    .replace(/⭐/g, '[*]')
+    .replace(/✅/g, '[OK]')
+    .replace(/❌/g, '[X]')
+    .replace(/⚠️/g, '[!]')
+    .replace(/🟢/g, '[+]')
+    .replace(/🟡/g, '[~]')
+    .replace(/🔴/g, '[-]')
+    .replace(/[\u{1F300}-\u{1F9FF}]/gu, '') // strip other emojis
+    .replace(/[^\x00-\x7F]/g, ''); // strip non-ASCII
+}
+
 export class PdfBuilder {
   static async buildPdf(options: PdfOptions | string): Promise<Buffer> {
     const parsed: PdfOptions =
@@ -19,34 +38,36 @@ export class PdfBuilder {
         : options;
 
     const pdfDoc = await PDFDocument.create();
-    const timesRomanFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
     const pageSize: [number, number] = [595.28, 841.89]; // A4 size
     let page = pdfDoc.addPage(pageSize);
     const { width, height } = page.getSize();
-    const margin = 50;
+    const margin = 48;
     let yPosition = height - margin;
 
+    const cleanTitle = sanitizeTextForPdf(parsed.title || 'Infinall Marketing Brief');
+
     // Header Title
-    page.drawText(parsed.title, {
+    page.drawText(cleanTitle.slice(0, 60), {
       x: margin,
       y: yPosition,
-      size: 20,
+      size: 18,
       font: boldFont,
       color: rgb(0.06, 0.09, 0.16),
     });
-    yPosition -= 26;
+    yPosition -= 24;
 
     if (parsed.subtitle) {
-      page.drawText(parsed.subtitle, {
+      page.drawText(sanitizeTextForPdf(parsed.subtitle), {
         x: margin,
         y: yPosition,
-        size: 12,
-        font: timesRomanFont,
+        size: 11,
+        font: helveticaFont,
         color: rgb(0.39, 0.45, 0.55),
       });
-      yPosition -= 20;
+      yPosition -= 18;
     }
 
     // Divider Line
@@ -54,68 +75,86 @@ export class PdfBuilder {
       start: { x: margin, y: yPosition },
       end: { x: width - margin, y: yPosition },
       thickness: 1,
-      color: rgb(0.88, 0.91, 0.94),
+      color: rgb(0.85, 0.88, 0.92),
     });
-    yPosition -= 30;
+    yPosition -= 25;
 
     // Content text lines
-    const lines = parsed.content.split('\n');
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
+    const rawContent = parsed.content || '';
+    const lines = rawContent.split('\n');
 
-      if (!line) {
-        yPosition -= 12;
+    for (const rawLine of lines) {
+      const sanitized = sanitizeTextForPdf(rawLine).trim();
+
+      if (!sanitized) {
+        yPosition -= 10;
         continue;
       }
 
       // Check if page overflow
-      if (yPosition < margin + 40) {
+      if (yPosition < margin + 45) {
         page = pdfDoc.addPage(pageSize);
         yPosition = height - margin;
       }
 
-      if (line.startsWith('# ')) {
-        yPosition -= 8;
-        page.drawText(line.replace(/^#\s+/, ''), {
+      if (sanitized.startsWith('# ')) {
+        yPosition -= 10;
+        page.drawText(sanitized.replace(/^#\s+/, '').slice(0, 70), {
           x: margin,
           y: yPosition,
-          size: 16,
+          size: 15,
           font: boldFont,
           color: rgb(0.06, 0.09, 0.16),
         });
-        yPosition -= 22;
-      } else if (line.startsWith('## ') || line.startsWith('### ')) {
-        yPosition -= 6;
-        page.drawText(line.replace(/^#+\s+/, ''), {
+        yPosition -= 20;
+      } else if (sanitized.startsWith('## ') || sanitized.startsWith('### ')) {
+        yPosition -= 8;
+        page.drawText(sanitized.replace(/^#+\s+/, '').slice(0, 75), {
           x: margin,
           y: yPosition,
-          size: 13,
+          size: 12,
           font: boldFont,
           color: rgb(0.12, 0.16, 0.23),
         });
-        yPosition -= 18;
+        yPosition -= 16;
+      } else if (sanitized.startsWith('|') && sanitized.endsWith('|')) {
+        // Table row representation
+        if (!sanitized.includes('---')) {
+          const cells = sanitized.split('|').map((c) => c.trim()).filter(Boolean);
+          const rowText = cells.join('   |   ');
+          page.drawText(rowText.slice(0, 85), {
+            x: margin,
+            y: yPosition,
+            size: 8.5,
+            font: helveticaFont,
+            color: rgb(0.2, 0.25, 0.33),
+          });
+          yPosition -= 13;
+        }
       } else {
-        // Simple word wrap
-        const words = line.split(' ');
+        // Regular paragraph or bullet
+        const isBullet = sanitized.startsWith('- ') || sanitized.startsWith('* ');
+        const cleanBody = sanitized.replace(/^[-*]\s+/, isBullet ? '• ' : '').replace(/\*\*/g, '');
+        const words = cleanBody.split(' ');
         let currentLine = '';
 
         for (const word of words) {
           const testLine = currentLine ? `${currentLine} ${word}` : word;
-          const textWidth = timesRomanFont.widthOfTextAtSize(testLine, 10);
+          const textWidth = helveticaFont.widthOfTextAtSize(testLine, 9.5);
 
           if (textWidth > width - 2 * margin) {
-            if (yPosition < margin + 40) {
+            if (yPosition < margin + 45) {
               page = pdfDoc.addPage(pageSize);
               yPosition = height - margin;
             }
             page.drawText(currentLine, {
-              x: margin,
+              x: isBullet ? margin + 8 : margin,
               y: yPosition,
-              size: 10,
-              font: timesRomanFont,
+              size: 9.5,
+              font: helveticaFont,
               color: rgb(0.2, 0.25, 0.33),
             });
-            yPosition -= 14;
+            yPosition -= 13;
             currentLine = word;
           } else {
             currentLine = testLine;
@@ -123,47 +162,45 @@ export class PdfBuilder {
         }
 
         if (currentLine) {
-          if (yPosition < margin + 40) {
+          if (yPosition < margin + 45) {
             page = pdfDoc.addPage(pageSize);
             yPosition = height - margin;
           }
           page.drawText(currentLine, {
-            x: margin,
+            x: isBullet ? margin + 8 : margin,
             y: yPosition,
-            size: 10,
-            font: timesRomanFont,
+            size: 9.5,
+            font: helveticaFont,
             color: rgb(0.2, 0.25, 0.33),
           });
-          yPosition -= 14;
+          yPosition -= 13;
         }
       }
     }
 
-    // Add running header, footer, and page numbers to all pages
+    // Add running header, footer, and page numbers
     const totalPages = pdfDoc.getPageCount();
     for (let pIdx = 0; pIdx < totalPages; pIdx++) {
       const p = pdfDoc.getPage(pIdx);
-      // Running header
-      p.drawText('Infinall Chat — Autonomous Marketing Intelligence', {
+      p.drawText('Infinall Chat - Autonomous Marketing Intelligence', {
         x: margin,
-        y: height - 30,
-        size: 8,
-        font: timesRomanFont,
+        y: height - 28,
+        size: 7.5,
+        font: helveticaFont,
         color: rgb(0.5, 0.55, 0.6),
       });
-      // Running footer with page numbering
       p.drawText(`Page ${pIdx + 1} of ${totalPages}`, {
-        x: width - margin - 55,
-        y: 30,
-        size: 8,
-        font: timesRomanFont,
+        x: width - margin - 50,
+        y: 28,
+        size: 7.5,
+        font: helveticaFont,
         color: rgb(0.5, 0.55, 0.6),
       });
       p.drawText('Confidential & Proprietary Marketing Deliverable', {
         x: margin,
-        y: 30,
-        size: 8,
-        font: timesRomanFont,
+        y: 28,
+        size: 7.5,
+        font: helveticaFont,
         color: rgb(0.5, 0.55, 0.6),
       });
     }

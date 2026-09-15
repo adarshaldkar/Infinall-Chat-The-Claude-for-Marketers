@@ -1,16 +1,22 @@
 // ============================================================
-// Infinall Chat - Real Document Parser (PDF / DOCX / CSV)
-// - PDF: extracted via pdf-parse (real text extraction)
-// - DOCX: extracted via mammoth (Word document to plaintext)
-// - CSV: RFC 4180-compliant parser (handles quoted commas, newlines)
+// Infinall Chat - Universal Multi-Format Document Parser
+// Supports: PDF, DOCX, DOC, PPTX, PPT, XLSX, XLS, CSV, TSV, MD, TXT, JSON
+// - PDF: extracted via pdf-parse (real page-by-page text extraction)
+// - DOCX/DOC: extracted via mammoth (Word document to plaintext & headings)
+// - PPTX/PPT: extracted via JSZip OpenXML (slide-by-slide text & titles)
+// - XLSX/XLS: extracted via ExcelJS (multi-sheet rows & columns to tables)
+// - CSV/TSV: RFC 4180-compliant parser (quoted commas, newlines)
+// - MD/TXT: Markdown headings, code blocks, and structured sections
 // ============================================================
 
 import { DocumentParseResult } from './types';
+import JSZip from 'jszip';
+import ExcelJS from 'exceljs';
 
 export class MultimodalDocumentParser {
   /**
-   * Parse document content from buffer.
-   * Supports: CSV (real RFC 4180), PDF (real text extraction), DOCX (real Word extraction).
+   * Parse document content from buffer or string.
+   * Supports: PDF, DOCX, DOC, PPTX, PPT, XLSX, XLS, CSV, TSV, MD, TXT, JSON.
    */
   static async parseDocument(
     fileName: string,
@@ -30,23 +36,51 @@ export class MultimodalDocumentParser {
       return parseDOCX(fileName, fileBuffer);
     }
 
+    if (ext === 'pptx' || ext === 'ppt') {
+      return parsePPTX(fileName, fileBuffer);
+    }
+
+    if (ext === 'xlsx' || ext === 'xls') {
+      return parseXLSX(fileName, fileBuffer);
+    }
+
     if (ext === 'json') {
       return parseJSON(fileName, fileBuffer);
     }
 
-    if (ext === 'md' || ext === 'txt') {
+    if (ext === 'md' || ext === 'markdown') {
+      return parseMarkdown(fileName, fileBuffer);
+    }
+
+    if (ext === 'txt' || ext === 'text') {
       const text = typeof fileBuffer === 'string' ? fileBuffer : fileBuffer.toString('utf-8');
+      const tables = extractTablesFromText(text);
       return {
         title: fileName,
         rawText: text,
-        tables: [],
+        tables,
       };
     }
 
-    // Unknown format
+    // Dynamic fallback for any text file
+    try {
+      const text = typeof fileBuffer === 'string' ? fileBuffer : fileBuffer.toString('utf-8');
+      // If it looks like valid text without excessive non-printable characters
+      const sample = text.slice(0, 1000);
+      const isBinary = /[\x00-\x08\x0E-\x1F]/.test(sample);
+      if (!isBinary) {
+        return {
+          title: fileName,
+          rawText: text,
+          tables: extractTablesFromText(text),
+        };
+      }
+    } catch {}
+
+    // Binary or unknown format
     return {
       title: fileName,
-      rawText: `[Unsupported file format: .${ext}. Supported: CSV, PDF, DOCX, JSON, MD, TXT]`,
+      rawText: `[Binary document file: ${fileName} (${ext.toUpperCase()}). Supported: PDF, DOCX, PPTX, XLSX, CSV, MD, TXT, JSON]`,
       tables: [],
     };
   }
@@ -134,14 +168,14 @@ async function parsePDF(
   content: Buffer | string
 ): Promise<DocumentParseResult> {
   try {
-    // Dynamic import — pdf-parse is CJS, use require() via createRequire for Next.js compat
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require('pdf-parse') as (buffer: Buffer) => Promise<{ text: string; numpages: number }>;
+    const { PDFParse } = require('pdf-parse');
     const buffer = typeof content === 'string' ? Buffer.from(content, 'base64') : content;
-    const result = await pdfParse(buffer);
+    const parserInstance = new PDFParse({ data: buffer });
+    const result = await parserInstance.getText();
 
     const rawText = result.text || '';
-    const pageCount = result.numpages;
+    const pageCount = result.total || (result.pages ? result.pages.length : 1);
 
     // Extract tables from structured text (heuristic: rows where cells are tab/space aligned)
     const tables = extractTablesFromText(rawText);
@@ -195,6 +229,160 @@ async function parseDOCX(
       tables: [],
     };
   }
+}
+
+/**
+ * Real PowerPoint PPTX/PPT presentation extraction using JSZip OpenXML.
+ */
+async function parsePPTX(
+  fileName: string,
+  content: Buffer | string
+): Promise<DocumentParseResult> {
+  try {
+    const buffer = typeof content === 'string' ? Buffer.from(content, 'base64') : content;
+    const zip = await JSZip.loadAsync(buffer);
+    const slideNames = Object.keys(zip.files)
+      .filter(
+        (name) =>
+          name.startsWith('ppt/slides/slide') &&
+          name.endsWith('.xml') &&
+          !zip.files[name].dir
+      )
+      .sort((a, b) => {
+        const numA = parseInt(a.replace(/\D/g, ''), 10) || 0;
+        const numB = parseInt(b.replace(/\D/g, ''), 10) || 0;
+        return numA - numB;
+      });
+
+    const slideSummaries: string[] = [];
+    const rows: string[][] = [];
+
+    for (let idx = 0; idx < slideNames.length; idx++) {
+      const slideXml = await zip.files[slideNames[idx]].async('string');
+      const textMatches: string[] = [];
+      const regex = /<a:t(?:\s+[^>]*)?>([^<]+)<\/a:t>/gi;
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(slideXml)) !== null) {
+        if (match[1] && match[1].trim()) {
+          textMatches.push(match[1].trim());
+        }
+      }
+
+      if (textMatches.length > 0) {
+        const title = textMatches[0];
+        const body = textMatches.slice(1).join(' ');
+        slideSummaries.push(`### Slide ${idx + 1}: ${title}\n${textMatches.join('\n')}`);
+        rows.push([`Slide ${idx + 1}`, title, body.slice(0, 100)]);
+      }
+    }
+
+    const rawText = slideSummaries.join('\n\n') || `[PowerPoint Presentation: ${fileName} (${slideNames.length} slides)]`;
+
+    return {
+      title: fileName,
+      pageCount: slideNames.length,
+      rawText: rawText.slice(0, 50_000),
+      tables: rows.length > 0 ? [{
+        title: `${fileName} — Slide Outline`,
+        headers: ['Slide #', 'Title', 'Content Preview'],
+        rows,
+      }] : [],
+    };
+  } catch (err) {
+    console.error('[DocParser] PPTX parsing failed:', err);
+    return {
+      title: fileName,
+      rawText: `[PowerPoint presentation parsing failed: ${err instanceof Error ? err.message : 'Unknown error'}. Ensure valid .pptx]`,
+      tables: [],
+    };
+  }
+}
+
+/**
+ * Real Excel XLSX spreadsheet extraction using ExcelJS.
+ */
+async function parseXLSX(
+  fileName: string,
+  content: Buffer | string
+): Promise<DocumentParseResult> {
+  try {
+    const buffer = typeof content === 'string' ? Buffer.from(content, 'base64') : content;
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+
+    const tables: Array<{ title: string; headers: string[]; rows: string[][] }> = [];
+    const sheetTexts: string[] = [];
+
+    workbook.eachSheet((worksheet, sheetId) => {
+      const sheetName = worksheet.name || `Sheet ${sheetId}`;
+      const sheetRows: string[][] = [];
+      let headers: string[] = [];
+
+      worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        if (rowNumber > 250) return;
+        const values = Array.isArray(row.values)
+          ? row.values.slice(1).map(v => (v !== null && v !== undefined ? String(v).trim() : ''))
+          : [];
+        if (values.some(Boolean)) {
+          if (headers.length === 0) {
+            headers = values;
+          } else {
+            sheetRows.push(values);
+          }
+        }
+      });
+
+      if (headers.length > 0 || sheetRows.length > 0) {
+        tables.push({
+          title: `${fileName} [Sheet: ${sheetName}]`,
+          headers: headers.length > 0 ? headers : ['Data'],
+          rows: sheetRows,
+        });
+
+        const sheetSummary = `### Sheet: ${sheetName}\n` +
+          `Headers: ${headers.join(' | ')}\n` +
+          sheetRows.slice(0, 20).map(r => r.join(' | ')).join('\n');
+        sheetTexts.push(sheetSummary);
+      }
+    });
+
+    const rawText = sheetTexts.join('\n\n') || `[Spreadsheet: ${fileName}]`;
+
+    return {
+      title: fileName,
+      pageCount: workbook.worksheets.length,
+      rawText: rawText.slice(0, 50_000),
+      tables,
+    };
+  } catch (err) {
+    console.error('[DocParser] XLSX parsing failed:', err);
+    return {
+      title: fileName,
+      rawText: `[Excel spreadsheet parsing failed: ${err instanceof Error ? err.message : 'Unknown error'}. Ensure valid .xlsx]`,
+      tables: [],
+    };
+  }
+}
+
+/**
+ * Structured Markdown parser extracting sections and headings.
+ */
+function parseMarkdown(
+  fileName: string,
+  content: Buffer | string
+): DocumentParseResult {
+  const text = typeof content === 'string' ? content : content.toString('utf-8');
+  const tables = extractTablesFromText(text);
+
+  // Count top-level headings as virtual sections
+  const headings = text.match(/^#{1,2}\s+(.+)$/gm) || [];
+
+  return {
+    title: fileName,
+    pageCount: Math.max(1, headings.length),
+    rawText: text.slice(0, 50_000),
+    tables,
+  };
 }
 
 /**

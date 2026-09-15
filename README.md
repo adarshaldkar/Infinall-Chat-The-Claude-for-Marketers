@@ -38,7 +38,7 @@ Infinall Chat is a Claude-tier autonomous pair programmer and growth strategist 
 ## 🏛️ Architecture & System Blueprint
 
 ### 1. Gateway & Agent Harness (`lib/state/agent-loop.ts`)
-- **Fast Router / Step 3 Planning Pass**: Classifies incoming marketing tasks (`copywriting`, `campaign_build`, `analytics`, `strategy`) and recommends optimal model tiers (Claude Sonnet 4.6, Claude Opus 4.6, Claude Haiku 4.5, GPT-5.2).
+- **Fast Router / Step 3 Planning Pass**: Classifies incoming marketing tasks (`copywriting`, `campaign_build`, `analytics`, `strategy`) and recommends the models exposed by the runtime catalog. Run `npm run verify:catalog` to detect stale documentation claims.
 - **Deferred Tool Discovery**: Searches semantic tool catalogs on-the-fly and loads minimal candidate tool schemas to preserve context windows.
 - **Resilient Multi-Turn Loop**: Parallel tool resolution with `Promise.allSettled()`, token budget monitors, and automatic Zod schema recovery loops.
 

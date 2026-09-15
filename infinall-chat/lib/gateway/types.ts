@@ -47,6 +47,7 @@ export type CanonicalSSEEvent =
         actionSummary: string;
         diff: MutationDiff;
         expiresAt: number;
+        argsHash?: string;
       };
     }
   | { type: 'text_delta'; payload: { delta: string } }
@@ -55,7 +56,7 @@ export type CanonicalSSEEvent =
       payload: {
         id: string;
         title: string;
-        type: 'html' | 'react' | 'markdown' | 'docx' | 'pptx' | 'xlsx';
+        type: import('@/lib/artifacts/types').ArtifactType;
         language: string;
       };
     }

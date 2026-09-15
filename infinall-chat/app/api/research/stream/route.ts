@@ -4,11 +4,17 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ResearchOrchestrator } from '@/lib/subagents/orchestrator';
+import { extractSessionFromRequest } from '@/lib/security/auth';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await extractSessionFromRequest(req);
+    if (!session) {
+      return NextResponse.json({ error: 'AUTHENTICATION_REQUIRED' }, { status: 401 });
+    }
+
     const body = await req.json();
     const { prompt = '' } = body;
 
@@ -25,6 +31,7 @@ export async function POST(req: NextRequest) {
             const sseData = `data: ${JSON.stringify(event)}\n\n`;
             controller.enqueue(encoder.encode(sseData));
           }
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done', payload: { finishReason: 'stop' } })}\n\n`));
           controller.close();
         } catch (err) {
           const errorEvent = {

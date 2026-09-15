@@ -131,11 +131,27 @@ export function renderMarkdownToHtml(markdown: string): string {
   return text;
 }
 
+function parseTimestampToSeconds(ts: string): number {
+  const parts = ts.replace(/[^\d:]/g, '').split(':').map(Number);
+  if (parts.length === 3) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+  if (parts.length === 2) {
+    return parts[0] * 60 + parts[1];
+  }
+  return 0;
+}
+
 function formatInline(str: string): string {
   return str
     .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-zinc-100">$1</strong>')
     .replace(/\*(.+?)\*/g, '<em class="italic text-zinc-200">$1</em>')
     .replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded text-xs font-mono bg-zinc-800/90 text-amber-300 border border-zinc-700/50">$1</code>')
+    // Interactive video timestamp citations like [▶ 01:42] or [01:42]
+    .replace(/\[(?:▶\s*)?(\d{1,2}:\d{2}(?::\d{2})?)\]/g, (match, ts) => {
+      const secs = parseTimestampToSeconds(ts);
+      return `<button onclick="window.dispatchEvent(new CustomEvent('seek-video-player', { detail: { timestampSeconds: ${secs} } }))" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono font-medium bg-cyan-950/90 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-900 hover:border-cyan-400 mx-0.5 cursor-pointer transition-all shadow-sm" title="Seek video to ${ts}"><span class="text-[9px]">▶</span> ${ts}</button>`;
+    })
     // Citations like [1] or [^1]
     .replace(/\[\^?(\d+)\]/g, '<sup class="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 mx-0.5 cursor-pointer hover:bg-cyan-500/40 transition-colors" title="Citation source #$1">$1</sup>')
     // Clickable external links

@@ -11,12 +11,20 @@ import VersionHistoryModal from "./controls/VersionHistoryModal";
 
 interface ArtifactPanelProps {
   artifact: Artifact;
+  artifacts?: Artifact[];
+  activeArtifactId?: string | null;
+  onSelectArtifact?: (id: string) => void;
+  sessionId?: string | null;
   onClose: () => void;
   onUpdateArtifact?: (updated: Partial<Artifact>) => void;
 }
 
 export default function ArtifactPanel({
   artifact,
+  artifacts = [],
+  activeArtifactId,
+  onSelectArtifact,
+  sessionId,
   onClose,
   onUpdateArtifact,
 }: ArtifactPanelProps) {
@@ -28,6 +36,18 @@ export default function ArtifactPanel({
   useEffect(() => {
     if (!artifact.isStreaming && artifact.content) {
       ArtifactVersionStore.commit(artifact.id, artifact.content, `Revision ${artifact.version}`);
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(artifact.id)) {
+        void fetch("/api/artifacts/snapshot", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            artifactId: artifact.id,
+            content: artifact.content,
+            version: artifact.version,
+            summary: `Revision ${artifact.version}`,
+          }),
+        }).catch(() => undefined);
+      }
     }
   }, [artifact.isStreaming, artifact.id, artifact.content, artifact.version]);
 
@@ -59,6 +79,13 @@ export default function ArtifactPanel({
         className="flex items-center justify-between px-4 py-3 border-b shrink-0 gap-3"
         style={{ borderColor: "var(--color-border)", background: "var(--color-sidebar)" }}
       >
+        {artifacts.length > 1 && (
+          <div className="flex items-center gap-1 overflow-x-auto border-b border-zinc-800 px-3 py-2">
+            {artifacts.map((item) => (
+              <button key={item.id} onClick={() => onSelectArtifact?.(item.id)} className={`max-w-48 truncate rounded-md px-2.5 py-1 text-[11px] ${item.id === activeArtifactId ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"}`} title={item.title}>{item.title}</button>
+            ))}
+          </div>
+        )}
         {/* Title & Metadata */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
