@@ -19,6 +19,10 @@ export interface ToolExecutionResult {
   success: boolean;
   result: unknown;
   isMutation: boolean;
+  isMock?: boolean;
+  mode?: 'live' | 'sandbox';
+  provider?: string;
+  warnings?: string[];
   sources?: SourceCitation[];
 }
 
@@ -106,17 +110,20 @@ export async function routeAndExecuteTool(
     return { success: res.success, result: res.data, isMutation };
   }
 
-  // 3. Search & SEO (Ahrefs, Semrush, GSC, Backlinks)
+  // 3. Search & SEO (Ahrefs, Semrush, Moz, SerpAPI, ScreamingFrog, SpyFu)
   if (
     toolName.startsWith('ahrefs_') ||
     toolName.startsWith('semrush_') ||
-    toolName.startsWith('gsc_') ||
+    toolName.startsWith('moz_') ||
+    toolName.startsWith('serpapi_') ||
+    toolName.startsWith('screaming_frog_') ||
+    toolName.startsWith('spyfu_') ||
+    toolName.includes('seo') ||
     toolName.includes('keyword') ||
-    toolName.includes('backlink') ||
-    toolName.includes('seo')
+    toolName.includes('backlink')
   ) {
     const res = await CategoryExecutors.executeSeo(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 4. Paid Media & Ad Networks (LinkedIn, TikTok, Twitter, Pinterest)
@@ -128,7 +135,7 @@ export async function routeAndExecuteTool(
     toolName.includes('ad_network')
   ) {
     const res = await CategoryExecutors.executePaidMedia(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 5. Analytics & Attribution (Mixpanel, PostHog, Amplitude, Heap)
@@ -140,7 +147,7 @@ export async function routeAndExecuteTool(
     toolName.includes('attribution')
   ) {
     const res = await CategoryExecutors.executeAnalytics(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 6. CRM & Lifecycle (Salesforce, Klaviyo, ActiveCampaign, Customer.io)
@@ -152,7 +159,7 @@ export async function routeAndExecuteTool(
     toolName.includes('lead')
   ) {
     const res = await CategoryExecutors.executeCrm(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 7. Content & Social (WordPress, Ghost, Buffer, Hootsuite, Sprout)
@@ -165,7 +172,7 @@ export async function routeAndExecuteTool(
     toolName.includes('social')
   ) {
     const res = await CategoryExecutors.executeSocial(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 8. Email & SMS (Sendgrid, Mailchimp, Twilio, Resend)
@@ -178,7 +185,7 @@ export async function routeAndExecuteTool(
     toolName.includes('sms')
   ) {
     const res = await CategoryExecutors.executeEmailSms(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 9. Creative & Assets (Figma, Canva, Cloudinary, Midjourney)
@@ -191,7 +198,7 @@ export async function routeAndExecuteTool(
     toolName.includes('image_gen')
   ) {
     const res = await CategoryExecutors.executeCreative(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 10. Collaboration & Workflow (Asana, Monday, Linear, Trello)
@@ -203,7 +210,7 @@ export async function routeAndExecuteTool(
     toolName.includes('workflow')
   ) {
     const res = await CategoryExecutors.executeCollaboration(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 11. CRO & Testing (Optimizely, VWO, Hotjar, CrazyEgg)
@@ -216,7 +223,7 @@ export async function routeAndExecuteTool(
     toolName.includes('ab_test')
   ) {
     const res = await CategoryExecutors.executeCro(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 12. E-commerce & Retail (Shopify, Amazon Ads, WooCommerce, BigCommerce)
@@ -229,7 +236,7 @@ export async function routeAndExecuteTool(
     toolName.includes('product_feed')
   ) {
     const res = await CategoryExecutors.executeEcommerce(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 13. Influencer & Affiliate (Impact, Grin, AspireIQ, Upfluence)
@@ -242,7 +249,7 @@ export async function routeAndExecuteTool(
     toolName.includes('creator')
   ) {
     const res = await CategoryExecutors.executeInfluencer(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 14. Market Intelligence (BuiltWith, Clearbit, SimilarWeb, ZoomInfo)
@@ -254,7 +261,7 @@ export async function routeAndExecuteTool(
     toolName.includes('technographic')
   ) {
     const res = await CategoryExecutors.executeMarketIntel(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 15. Customer Support & Feedback (Zendesk, Intercom, Typeform, SurveyMonkey)
@@ -267,7 +274,7 @@ export async function routeAndExecuteTool(
     toolName.includes('csat')
   ) {
     const res = await CategoryExecutors.executeSupport(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // 16. Cloud Storage & Data Warehouse (Drive, Dropbox, Snowflake, BigQuery)
@@ -280,7 +287,7 @@ export async function routeAndExecuteTool(
     toolName.includes('sql_query')
   ) {
     const res = await CategoryExecutors.executeDataWarehouse(toolName, args);
-    return { success: res.success, result: res.data, isMutation };
+    return { success: res.success, result: res.data, isMutation, isMock: res.isMock, mode: res.mode, provider: res.provider, warnings: res.warnings };
   }
 
   // STRICT HONEST FAILURE: Unknown tools return an explicit error, NEVER synthetic success

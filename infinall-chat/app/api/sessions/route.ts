@@ -148,6 +148,25 @@ export async function GET(req: NextRequest) {
     artifacts: (artifactRows ?? []).filter((artifact: ArtifactRow) => artifact.session_id === row.id),
   }));
 
+  if (query) {
+    try {
+      const { data: searchResults, error: searchError } = await (supabase as SupabaseClient).rpc('search_chat_history', {
+        search_query: query,
+        filter_user_id: isUuidUser ? session.userId : null,
+      });
+
+      if (!searchError && Array.isArray(searchResults) && searchResults.length > 0) {
+        const matchedSessionIds = new Set(searchResults.map((r: { session_id: string }) => r.session_id));
+        const matchingSessions = sessions.filter((s) => matchedSessionIds.has(s.id));
+        if (matchingSessions.length > 0) {
+          return NextResponse.json({ sessions: matchingSessions, persistence: 'supabase', searchMode: 'postgres_fts' });
+        }
+      }
+    } catch (rpcErr) {
+      console.warn('[Sessions FTS Search] Falling back to text filter:', rpcErr);
+    }
+  }
+
   const searchedSessions = query
     ? sessions.filter((item) =>
         item.title.toLowerCase().includes(query.toLowerCase()) ||
@@ -250,43 +269,58 @@ async function upsertSession(req: NextRequest) {
     return NextResponse.json({ persisted: false, persistence: 'local_fallback', error: sessionError.message });
   }
 
-  // Ensure message IDs are valid UUIDs
-  await db.from('chat_messages').delete().eq('session_id', sessionId);
+  // Non-destructive incremental message upsert
   if (value.messages.length > 0) {
-    const { error: msgError } = await db.from('chat_messages').insert(
-      value.messages.map((message) => ({
+    const messageRows = value.messages.map((message, idx) => ({
+      id: UUID_REGEX.test(message.id) ? message.id : crypto.randomUUID(),
+      session_id: sessionId,
+      role: message.role,
+      content: message,
+      thinking: message.thinking ?? null,
+      sequence_number: idx + 1,
+      model_used: message.model ?? 'auto',
+      created_at: now,
+    }));
+    
+    let { error: msgError } = await db.from('chat_messages').upsert(messageRows, { onConflict: 'id' });
+    if (msgError) {
+      // If sequence_number or model_used column is not present in existing table, fallback to standard schema
+      const fallbackRows = value.messages.map((message) => ({
         id: UUID_REGEX.test(message.id) ? message.id : crypto.randomUUID(),
         session_id: sessionId,
         role: message.role,
         content: message,
         thinking: message.thinking ?? null,
         created_at: now,
-      }))
-    );
-    if (msgError) console.warn('[Sessions API] Message insert warning:', msgError.message);
+      }));
+      const retry = await db.from('chat_messages').upsert(fallbackRows, { onConflict: 'id' });
+      if (retry.error) {
+        console.warn('[Sessions API] Message upsert warning:', retry.error.message);
+      }
+    }
   }
 
-  if (value.artifact) {
+  // Non-destructive artifact upsert
+  if (value.artifact || value.artifacts?.length) {
     const artifacts = value.artifacts?.length ? value.artifacts : [value.artifact];
-    await db.from('doc_artifacts').delete().eq('session_id', sessionId);
-    await db.from('doc_artifacts').insert(
-      artifacts.map((raw) => {
-        const artifact = raw as Record<string, unknown>;
-        const artifactId = typeof artifact.id === 'string' && UUID_REGEX.test(artifact.id) ? artifact.id : crypto.randomUUID();
-        return {
-          id: artifactId,
-          session_id: sessionId,
-          title: String(artifact.title ?? 'Artifact'),
-          type: String(artifact.type ?? 'markdown'),
-          language: artifact.language ? String(artifact.language) : null,
-          content: String(artifact.content ?? ''),
-          version: Number(artifact.version ?? 1),
-          updated_at: now,
-        };
-      })
-    );
-  } else {
-    await db.from('doc_artifacts').delete().eq('session_id', sessionId);
+    const artifactRows = artifacts.map((raw) => {
+      const artifact = raw as Record<string, unknown>;
+      const artifactId = typeof artifact.id === 'string' && UUID_REGEX.test(artifact.id) ? artifact.id : crypto.randomUUID();
+      return {
+        id: artifactId,
+        session_id: sessionId,
+        title: String(artifact.title ?? 'Artifact'),
+        type: String(artifact.type ?? 'markdown'),
+        language: artifact.language ? String(artifact.language) : null,
+        content: String(artifact.content ?? ''),
+        version: Number(artifact.version ?? 1),
+        updated_at: now,
+      };
+    });
+    const { error: artError } = await db.from('doc_artifacts').upsert(artifactRows, { onConflict: 'id' });
+    if (artError) {
+      console.warn('[Sessions API] Artifact upsert warning:', artError.message);
+    }
   }
 
   return NextResponse.json({ persisted: true, persistence: 'supabase', sessionId });

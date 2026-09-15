@@ -1,0 +1,43 @@
+name: Infinall Chat Workspace CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  validate:
+    name: Build, Typecheck & Test Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'infinall-chat/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./infinall-chat
+        run: npm ci || npm install
+
+      - name: Run TypeScript Typecheck
+        working-directory: ./infinall-chat
+        run: npm run test:types
+
+      - name: Run Planning Regression Suite
+        working-directory: ./infinall-chat
+        run: npx tsx --import ./tests/test-env-bootstrap.ts tests/planning-regression-suite.ts
+
+      - name: Run Parser Registry & Ingestion Suite
+        working-directory: ./infinall-chat
+        run: npx tsx --import ./tests/test-env-bootstrap.ts tests/test-ingestion-registry.ts
+
+      - name: Run Vertical Acceptance Suite
+        working-directory: ./infinall-chat
+        run: npx tsx --import ./tests/test-env-bootstrap.ts tests/vertical-acceptance-suite.ts

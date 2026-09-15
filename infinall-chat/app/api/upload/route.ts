@@ -138,16 +138,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2. Also save to local public uploads folder as offline fallback & preview
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-    try {
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
+    // 2. Only write to local disk uploads as fallback if Supabase Storage was not available
+    if (!storagePath) {
+      const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+      try {
+        if (!fs.existsSync(uploadsDir)) {
+          fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+        const diskPath = path.join(uploadsDir, safeDiskName);
+        fs.writeFileSync(diskPath, buffer);
+      } catch (diskErr) {
+        console.warn('[Upload API] Could not write to disk uploads folder:', diskErr);
       }
-      const diskPath = path.join(uploadsDir, safeDiskName);
-      fs.writeFileSync(diskPath, buffer);
-    } catch (diskErr) {
-      console.warn('[Upload API] Could not write to disk uploads folder:', diskErr);
     }
 
     const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;

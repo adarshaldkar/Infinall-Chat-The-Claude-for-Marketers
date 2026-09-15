@@ -1,12 +1,14 @@
-// ============================================================
-// Infinall Chat - Skills Directory API Router
-// ============================================================
-
 import { NextRequest, NextResponse } from 'next/server';
 import { SkillResolver } from '@/lib/skills/resolver';
+import { extractSessionFromRequest } from '@/lib/security/auth';
 
 export async function GET(req: NextRequest) {
   try {
+    const session = await extractSessionFromRequest(req);
+    if (session?.userId) {
+      await SkillResolver.syncWithSupabase(session.userId);
+    }
+
     const { searchParams } = new URL(req.url);
     const query = searchParams.get('q') || searchParams.get('query') || undefined;
     const category = searchParams.get('category') || undefined;
@@ -27,6 +29,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await extractSessionFromRequest(req);
     const body = await req.json();
     const {
       name,
@@ -72,7 +75,7 @@ export async function POST(req: NextRequest) {
       scope,
     };
 
-    SkillResolver.registerCustomSkill(newSkill);
+    SkillResolver.registerCustomSkill(newSkill, session?.userId, session ? (session as any).projectId : undefined);
 
     return NextResponse.json(
       {

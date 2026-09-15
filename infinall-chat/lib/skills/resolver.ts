@@ -113,9 +113,56 @@ export class SkillResolver {
   }
 
   /**
+   * Sync custom skills from Supabase custom_skills table (personal, team, catalog)
+   */
+  public static async syncWithSupabase(userId?: string): Promise<void> {
+    try {
+      const { getSupabaseServerClient } = await import('@/lib/supabase/server');
+      const supabase = getSupabaseServerClient();
+      if (!supabase) return;
+
+      let query = (supabase as any).from('custom_skills').select('*');
+      if (userId) {
+        const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (UUID_REGEX.test(userId)) {
+          query = query.or(`user_id.eq.${userId},scope.eq.catalog,scope.eq.team`);
+        }
+      }
+      const { data, error } = await query;
+      if (!error && Array.isArray(data)) {
+        for (const rawRow of data) {
+          const row = rawRow as Record<string, any>;
+          const skill: CompleteSkill = {
+            slug: typeof row.slug === 'string' && row.slug.startsWith('/') ? row.slug : `/${row.slug}`,
+            name: String(row.name || 'Custom Skill'),
+            category: row.category || 'custom',
+            description: String(row.description || ''),
+            triggerKeywords: Array.isArray(row.trigger_keywords) ? row.trigger_keywords : [String(row.name || '').toLowerCase()],
+            icon: row.icon || 'Sparkles',
+            estimatedTokens: Math.ceil((String(row.system_prompt_injection || '').length) / 4) + 150,
+            systemPromptInjection: String(row.system_prompt_injection || ''),
+            rules: Array.isArray(row.rules) ? row.rules : [],
+            suggestedTools: Array.isArray(row.suggested_tools) ? row.suggested_tools : [],
+            defaultArtifactType: row.default_artifact_type || 'markdown',
+            scope: row.scope || 'personal',
+          };
+          const existingIdx = this.customSkills.findIndex((s) => s.slug === skill.slug);
+          if (existingIdx >= 0) {
+            this.customSkills[existingIdx] = skill;
+          } else {
+            this.customSkills.push(skill);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[SkillResolver] Supabase sync warning:', err);
+    }
+  }
+
+  /**
    * Register a custom team / workspace skill (Level 3)
    */
-  static registerCustomSkill(skill: CompleteSkill) {
+  static registerCustomSkill(skill: CompleteSkill, userId?: string, projectId?: string) {
     const existingIdx = this.customSkills.findIndex((s) => s.slug === skill.slug);
     if (existingIdx >= 0) {
       this.customSkills[existingIdx] = skill;
@@ -132,6 +179,40 @@ export class SkillResolver {
       systemPromptAddition: skill.systemPromptInjection,
       createdAt: new Date().toISOString(),
     });
+
+    // Also persist to Supabase custom_skills table if available
+    if (userId) {
+      import('@/lib/supabase/server').then(({ getSupabaseServerClient }) => {
+        const supabase = getSupabaseServerClient();
+        if (supabase) {
+          const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const validUserId = UUID_REGEX.test(userId) ? userId : null;
+          if (validUserId) {
+            (supabase as any).from('custom_skills').upsert({
+              id: skill.slug.replace(/^\//, ''),
+              user_id: validUserId,
+              project_id: projectId && UUID_REGEX.test(projectId) ? projectId : null,
+              slug: skill.slug,
+              name: skill.name,
+              category: skill.category,
+              description: skill.description,
+              trigger_keywords: skill.triggerKeywords,
+              system_prompt_injection: skill.systemPromptInjection,
+              rules: skill.rules || [],
+              suggested_tools: skill.suggestedTools || [],
+              default_artifact_type: skill.defaultArtifactType || 'markdown',
+              scope: skill.scope || 'personal',
+              icon: skill.icon || 'Sparkles',
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'id' }).then(({ error }: { error?: any }) => {
+              if (error) console.warn('[SkillResolver] Supabase skill upsert warning:', error.message);
+            });
+          }
+        }
+      }).catch((err) => {
+        console.warn('[SkillResolver] Supabase loader error:', err);
+      });
+    }
   }
 
   /**

@@ -25,6 +25,7 @@ export interface ToolExecutionResponse<T = unknown> {
   executionTimeMs: number;
   provider: string;
   isMock: boolean;
+  mode: 'live' | 'sandbox';
   warnings?: string[];
 }
 
@@ -38,8 +39,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'seo_scraping',
-      provider: 'SEO Intelligence Gateway',
-      isMock: false,
+      provider: 'SEO Intelligence Gateway (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 45,
       data: {
         target: query,
@@ -73,8 +76,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'paid_media',
-      provider: 'Ad Network Orchestrator',
-      isMock: false,
+      provider: 'Ad Network Orchestrator (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 65,
       data: {
         timeframe,
@@ -108,8 +113,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'analytics',
-      provider: 'Customer Data Platform Engine',
-      isMock: false,
+      provider: 'Customer Data Platform Engine (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 50,
       data: {
         activeUsers30d: 84200,
@@ -141,8 +148,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'crm_retention',
-      provider: 'CRM Lifecycle Connector',
-      isMock: false,
+      provider: 'CRM Lifecycle Connector (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 55,
       data: {
         pipelineSummary: {
@@ -170,8 +179,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'cro_creative',
-      provider: 'Social Distribution Mesh',
-      isMock: false,
+      provider: 'Social Distribution Mesh (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 40,
       data: {
         aggregatedReach: 320000,
@@ -194,8 +205,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'crm_retention',
-      provider: 'Omnichannel Messaging Gateway',
-      isMock: false,
+      provider: 'Omnichannel Messaging Gateway (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 45,
       data: {
         deliveryMetrics: {
@@ -223,8 +236,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'cro_creative',
-      provider: 'Design Asset Renderer',
-      isMock: false,
+      provider: 'Design Asset Renderer (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 70,
       data: {
         assetGenerationStatus: 'READY',
@@ -251,8 +266,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'automation',
-      provider: 'Workspace Syncer',
-      isMock: false,
+      provider: 'Workspace Syncer (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 35,
       data: {
         syncedChannels: ['#growth-strategy', '#paid-marketing-alerts', '#campaign-approvals'],
@@ -273,8 +290,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'cro_creative',
-      provider: 'CRO Experiment Engine',
-      isMock: false,
+      provider: 'CRO Experiment Engine (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 55,
       data: {
         experimentName: 'Hero Section CTA vs Value Prop Copy Split',
@@ -299,8 +318,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'analytics',
-      provider: 'E-commerce Telemetry',
-      isMock: false,
+      provider: 'E-commerce Telemetry (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 60,
       data: {
         storePerformance30d: {
@@ -326,8 +347,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'paid_media',
-      provider: 'Creator Network Hub',
-      isMock: false,
+      provider: 'Creator Network Hub (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 45,
       data: {
         activePartnerships: 38,
@@ -350,8 +373,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'seo_scraping',
-      provider: 'Competitive Intelligence Scanner',
-      isMock: false,
+      provider: 'Competitive Intelligence Scanner (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 80,
       data: {
         domain,
@@ -377,8 +402,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'automation',
-      provider: 'Voice of Customer Engine',
-      isMock: false,
+      provider: 'Voice of Customer Engine (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 40,
       data: {
         csatScore: 4.78,
@@ -401,8 +428,10 @@ export class CategoryExecutors {
       success: true,
       toolId,
       category: 'analytics',
-      provider: 'Data Warehouse Connector',
-      isMock: false,
+      provider: 'Data Warehouse Connector (Sandbox)',
+      isMock: true,
+      mode: 'sandbox',
+      warnings: ['Executing in sandbox simulation mode with baseline domain schema. Live vendor API connector not configured.'],
       executionTimeMs: Date.now() - start + 65,
       data: {
         warehouseStatus: 'CONNECTED',

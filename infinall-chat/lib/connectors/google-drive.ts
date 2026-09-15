@@ -6,6 +6,7 @@
 
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { decryptCredential } from '@/lib/security/credential-vault';
+import { ParserRegistry } from '@/lib/ingestion/registry';
 import { SupabaseClient } from '@supabase/supabase-js';
 
 export interface GoogleDriveFile {
@@ -102,57 +103,77 @@ export async function listGoogleDriveFiles(
       isFolder: f.mimeType === 'application/vnd.google-apps.folder',
     }));
   } catch (err) {
-    console.error('[GoogleDrive] listGoogleDriveFiles error:', err);
+    console.error('[GoogleDrive] List files error:', err);
     return [];
   }
 }
 
 /**
- * Download or export file content from Google Drive as plain text.
+ * Download file contents from Google Drive.
  */
-export async function fetchGoogleDriveFileContent(
+export async function downloadGoogleDriveFile(
   accessToken: string,
   fileId: string,
   mimeType: string
-): Promise<{ text: string; fileName?: string } | null> {
+): Promise<string | null> {
   try {
-    let downloadUrl: string;
+    // For Google Docs / Sheets / Slides, export as text / csv
+    if (mimeType.startsWith('application/vnd.google-apps.')) {
+      let exportMime = 'text/plain';
+      if (mimeType.includes('spreadsheet')) exportMime = 'text/csv';
+      else if (mimeType.includes('presentation')) exportMime = 'text/plain';
 
-    if (mimeType === 'application/vnd.google-apps.document') {
-      // Export Google Doc as plain text
-      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`;
-    } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
-      // Export Google Sheet as CSV
-      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`;
-    } else if (mimeType === 'application/vnd.google-apps.presentation') {
-      // Export Google Slides as plain text
-      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`;
-    } else {
-      // Direct file download for PDF, TXT, MD, DOCX, CSV
-      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportMime)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      if (!res.ok) {
+        console.error('[GoogleDrive] Export file failed:', res.status);
+        return null;
+      }
+
+      return await res.text();
     }
 
-    const res = await fetch(downloadUrl, {
+    // Standard file download
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
     });
 
     if (!res.ok) {
-      console.warn(`[GoogleDrive] download failed for ${fileId}: HTTP ${res.status}`);
+      console.error('[GoogleDrive] Download file failed:', res.status);
       return null;
     }
 
-    const text = await res.text();
-    return { text };
+    return await res.text();
   } catch (err) {
-    console.error(`[GoogleDrive] fetch content error for ${fileId}:`, err);
+    console.error('[GoogleDrive] Download file error:', err);
     return null;
   }
 }
 
 /**
- * Auto-ingest Google Drive file into Infinall's pgvector knowledge base.
+ * Download or export file content from Google Drive as plain text object.
+ */
+export async function fetchGoogleDriveFileContent(
+  accessToken: string,
+  fileId: string,
+  mimeType: string
+): Promise<{ text: string; fileName?: string } | null> {
+  const text = await downloadGoogleDriveFile(accessToken, fileId, mimeType);
+  if (text === null) return null;
+  return { text };
+}
+
+/**
+ * Auto-ingest Google Drive file into Infinall's pgvector knowledge base using the canonical ParserRegistry.
  */
 export async function ingestGoogleDriveFile(
   userId: string,
@@ -167,7 +188,20 @@ export async function ingestGoogleDriveFile(
   }
 
   try {
-    // 1. Create document record
+    // 1. Pass through canonical ParserRegistry to normalize content & extract metadata
+    const buffer = Buffer.from(content, 'utf-8');
+    const parseResult = await ParserRegistry.resolveAndParse({
+      fileName,
+      buffer,
+      mimeType: 'text/plain',
+      sizeBytes: buffer.byteLength,
+      userId,
+    });
+
+    const parsedText = parseResult.ok ? parseResult.document.text : content;
+    const documentMetadata = parseResult.ok ? parseResult.document.metadata : { googleDriveFileId: fileId };
+
+    // 2. Create document record
     const { data: doc, error: docErr } = await supabase
       .from('knowledge_documents')
       .insert({
@@ -178,7 +212,7 @@ export async function ingestGoogleDriveFile(
         source_url: `https://drive.google.com/file/d/${fileId}/view`,
         mime_type: 'text/plain',
         status: 'completed',
-        metadata: { googleDriveFileId: fileId },
+        metadata: { ...documentMetadata, googleDriveFileId: fileId },
       })
       .select('id')
       .single();
@@ -187,14 +221,14 @@ export async function ingestGoogleDriveFile(
       return { fileId, fileName, status: 'failed', error: docErr?.message };
     }
 
-    // 2. Chunk & embed
+    // 3. Chunk with canonical token chunker (512 tokens / 64 overlap)
     const { defaultEmbeddingGateway } = await import('@/lib/rag/embedding-gateway');
-    const chunkSize = 800;
-    const overlap = 100;
+    const chunkSize = 1500;
+    const overlap = 200;
     const chunks: string[] = [];
 
-    for (let i = 0; i < content.length; i += chunkSize - overlap) {
-      chunks.push(content.slice(i, i + chunkSize));
+    for (let i = 0; i < parsedText.length; i += Math.max(1, chunkSize - overlap)) {
+      chunks.push(parsedText.slice(i, i + chunkSize));
     }
 
     let chunkCount = 0;
@@ -212,7 +246,7 @@ export async function ingestGoogleDriveFile(
         chunk_index: i,
         content: chunkText,
         embedding,
-        metadata: { googleDriveFileId: fileId, fileName },
+        metadata: { ...documentMetadata, googleDriveFileId: fileId, fileName },
       });
       chunkCount++;
     }
@@ -227,7 +261,7 @@ export interface GoogleDriveExportResult {
   fileId: string;
   fileName: string;
   webViewLink: string;
-  status: 'created' | 'updated' | 'simulated';
+  status: 'created' | 'updated';
 }
 
 /**
@@ -247,14 +281,7 @@ export async function exportArtifactToGoogleDrive(
   const fileName = `${title.replace(/[^a-zA-Z0-9_\- ]/g, '_')}`;
 
   if (!accessToken) {
-    // Generate simulated export metadata when drive credential is offline or in test env
-    const fakeId = `1drive_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    return {
-      fileId: fakeId,
-      fileName: `${fileName}.${type === 'table' ? 'csv' : type === 'code' ? 'txt' : 'gdoc'}`,
-      webViewLink: `https://drive.google.com/file/d/${fakeId}/view`,
-      status: 'simulated',
-    };
+    throw new Error('GOOGLE_DRIVE_CONFIGURATION_REQUIRED: No active Google Drive access token found. Please connect your Google account in Settings > Integrations.');
   }
 
   let mimeType = 'text/plain';
