@@ -143,41 +143,46 @@ export async function ingestDocument(
       }
     }
 
-    // Also persist locally for instant retrieval & offline resilience
-    ensureDir(DATA_DIR);
-    const localDocPath = path.join(DATA_DIR, 'documents.json');
-    const localChunksPath = path.join(DATA_DIR, 'chunks.json');
-
-    let localDocs: unknown[] = [];
-    let localChunks: unknown[] = [];
-
-    try {
-      if (fs.existsSync(localDocPath)) localDocs = JSON.parse(fs.readFileSync(localDocPath, 'utf8'));
-      if (fs.existsSync(localChunksPath)) localChunks = JSON.parse(fs.readFileSync(localChunksPath, 'utf8'));
-    } catch (_) {}
-
-    localDocs.push({
-      id: documentId,
-      userId,
-      title: parsed.title,
-      fileType: parsed.metadata.fileType,
-      fileSizeBytes,
-      pageCount,
-      chunkCount: chunks.length,
-      status: 'ready',
-      createdAt: new Date().toISOString(),
-    });
-
+    // Build enhanced chunks with embeddings (used both for local storage and return value)
     const enhancedChunks = chunks.map((c, idx) => ({
       ...c,
       documentId,
       userId,
       embedding: embeddings[idx],
     }));
-    localChunks.push(...enhancedChunks);
 
-    fs.writeFileSync(localDocPath, JSON.stringify(localDocs, null, 2), 'utf8');
-    fs.writeFileSync(localChunksPath, JSON.stringify(localChunks, null, 2), 'utf8');
+    // Local persistence: ONLY in development when STORAGE_MODE=local is set.
+    // In production, Supabase is the sole source of truth.
+    if (process.env.NODE_ENV !== 'production' && process.env.STORAGE_MODE === 'local') {
+      ensureDir(DATA_DIR);
+      const localDocPath = path.join(DATA_DIR, 'documents.json');
+      const localChunksPath = path.join(DATA_DIR, 'chunks.json');
+
+      let localDocs: unknown[] = [];
+      let localChunks: unknown[] = [];
+
+      try {
+        if (fs.existsSync(localDocPath)) localDocs = JSON.parse(fs.readFileSync(localDocPath, 'utf8'));
+        if (fs.existsSync(localChunksPath)) localChunks = JSON.parse(fs.readFileSync(localChunksPath, 'utf8'));
+      } catch (_) {}
+
+      localDocs.push({
+        id: documentId,
+        userId,
+        title: parsed.title,
+        fileType: parsed.metadata.fileType,
+        fileSizeBytes,
+        pageCount,
+        chunkCount: chunks.length,
+        status: 'ready',
+        createdAt: new Date().toISOString(),
+      });
+
+      localChunks.push(...enhancedChunks);
+
+      fs.writeFileSync(localDocPath, JSON.stringify(localDocs, null, 2), 'utf8');
+      fs.writeFileSync(localChunksPath, JSON.stringify(localChunks, null, 2), 'utf8');
+    }
 
     // ── 6. READY ───────────────────────────────────────────────
     emit('ready', {

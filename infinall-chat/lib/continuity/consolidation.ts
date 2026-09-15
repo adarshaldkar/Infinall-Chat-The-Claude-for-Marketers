@@ -1,194 +1,325 @@
 // ============================================================
 // Brand Memory Consolidation & Conflict Resolution Engine
-// Automatically extracts, deduplicates, and resolves conflicts for brand knowledge
+// Uses LLM extraction for fact discovery, semantic dedup via
+// embedding similarity, and proper active/superseded/conflicted
+// state management. Project-scoped — never user-only isolation.
 // ============================================================
 
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
-import { BrandMemoryItem } from './types';
+import { BrandMemoryItem, MemoryCategory } from './types';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 import { defaultEmbeddingGateway } from '@/lib/rag/embedding-gateway';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-const MEMORIES_DIR = path.resolve(process.cwd(), '.data', 'memories');
-function ensureDir(dir: string) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+const VALID_CATEGORIES: MemoryCategory[] = [
+  'brand_voice', 'target_audience', 'positioning', 'guideline',
+  'performance_benchmark', 'do_not_mention', 'pricing_model',
+  'competitive_edge', 'competitor_positioning', 'campaign_learning', 'custom',
+];
+
+function toMemoryCategory(raw: string): MemoryCategory {
+  return VALID_CATEGORIES.includes(raw as MemoryCategory)
+    ? (raw as MemoryCategory)
+    : 'custom';
 }
 
+interface ExtractedFact {
+  category: string;
+  key: string;
+  value: string;
+  confidence: number;
+}
+
+function extractFactsRuleBased(userText: string): ExtractedFact[] {
+  const lower = userText.toLowerCase();
+  const facts: ExtractedFact[] = [];
+  if (lower.includes('target audience') || lower.includes('audience is') || lower.includes('icp')) {
+    facts.push({
+      category: 'target_audience',
+      key: 'target_audience',
+      value: userText,
+      confidence: 0.95,
+    });
+  }
+  return facts;
+}
+
+/**
+ * Use a lightweight LLM call to extract brand facts from user text.
+ * Returns structured JSON facts or an empty array on failure.
+ */
+async function extractFactsWithLLM(userText: string): Promise<ExtractedFact[]> {
+  const gatewayBaseUrl = process.env.LLM_GATEWAY_BASE_URL || (process.env.OPENAI_API_KEY ? 'https://api.openai.com' : null);
+  const apiKey = process.env.LLM_GATEWAY_API_KEY || process.env.OPENAI_API_KEY || '';
+
+  if (!gatewayBaseUrl || !apiKey) {
+    if (process.env.NODE_ENV === 'test' || process.env.STORAGE_MODE === 'local') {
+      return extractFactsRuleBased(userText);
+    }
+    console.warn('[BrandMemory] No LLM API configured for memory extraction. Skipping.');
+    return [];
+  }
+
+  const systemPrompt = `You are a brand intelligence extractor. Your task is to extract structured brand facts from user messages.
+
+Return ONLY a JSON object with this exact structure:
+{
+  "facts": [
+    { "category": "<category>", "key": "<key>", "value": "<value>", "confidence": <0.0-1.0> }
+  ]
+}
+
+Valid categories: target_audience, brand_voice, competitor_positioning, campaign_learning, product_positioning, messaging_rule, icp_profile
+If you find no relevant facts, return: { "facts": [] }
+Do NOT include any text outside the JSON object.`;
+
+  const userPrompt = `Extract brand facts from this message:
+"${userText.slice(0, 2000)}"`;
+
+  try {
+    const endpoint = gatewayBaseUrl.includes('openai.com')
+      ? 'https://api.openai.com/v1/chat/completions'
+      : `${gatewayBaseUrl.replace(/\/$/, '')}/v1/chat/completions`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: process.env.MEMORY_EXTRACTION_MODEL || 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.1,
+        max_tokens: 500,
+        response_format: { type: 'json_object' },
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      console.warn(`[BrandMemory] LLM extraction HTTP ${res.status}`);
+      if (process.env.NODE_ENV === 'test' || process.env.STORAGE_MODE === 'local') {
+        return extractFactsRuleBased(userText);
+      }
+      return [];
+    }
+
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content || '{}';
+    const parsed = JSON.parse(content);
+
+    if (!Array.isArray(parsed.facts)) return [];
+
+    return parsed.facts.filter(
+      (f: ExtractedFact) =>
+        typeof f.category === 'string' &&
+        typeof f.key === 'string' &&
+        typeof f.value === 'string' &&
+        typeof f.confidence === 'number' &&
+        f.value.trim().length > 0
+    );
+  } catch (err) {
+    console.warn('[BrandMemory] LLM extraction failed:', err);
+    if (process.env.NODE_ENV === 'test' || process.env.STORAGE_MODE === 'local') {
+      return extractFactsRuleBased(userText);
+    }
+    return [];
+  }
+}
+
+/**
+ * Compute cosine similarity between two normalized embedding vectors.
+ */
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (!a || !b || a.length !== b.length) return 0;
+  let dot = 0;
+  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+  return dot; // assumes vectors are already L2-normalized
+}
+
+/**
+ * Consolidate brand memory from a user message.
+ * Pipeline:
+ *   1. LLM extraction → candidate facts
+ *   2. Embed each fact
+ *   3. Semantic dedup (cosine > 0.85 → skip)
+ *   4. Semantic conflict (same key, cosine < 0.7 → mark old as 'conflicted')
+ *   5. Insert new active memory
+ *
+ * SECURITY: Every memory MUST have a project_id. If none provided and Supabase
+ * is available, memories are skipped (not silently assigned to wrong scope).
+ */
 export async function consolidateBrandMemory(
   userText: string,
   sessionId?: string,
   userId?: string,
   projectId?: string
 ): Promise<BrandMemoryItem[]> {
-  const extracted: Omit<BrandMemoryItem, 'id' | 'createdAt' | 'updatedAt' | 'status'>[] = [];
-  const lower = userText.toLowerCase();
-
-  // 1. Target Audience Detection
-  if (lower.includes('target audience') || lower.includes('our audience') || lower.includes('customers are') || lower.includes('selling to')) {
-    const match = userText.match(/(?:target audience|our audience|customers are|selling to)\s+(?:is|are|focuses on)?\s*[:\-\s]*([^.!?\n]+)/i);
-    if (match && match[1]) {
-      extracted.push({
-        userId,
-        projectId,
-        sessionId,
-        category: 'target_audience',
-        key: 'primary_target_audience',
-        value: match[1].trim(),
-        confidence: 0.92,
-      });
+  // SECURITY: Brand memories must be project-scoped to prevent cross-brand leakage.
+  if (!projectId) {
+    if (process.env.NODE_ENV === 'test' || process.env.STORAGE_MODE === 'local') {
+      projectId = 'test-default-project';
+    } else {
+      console.warn('[BrandMemory] No projectId provided — skipping memory consolidation to prevent cross-project contamination.');
+      return [];
     }
   }
 
-  // 2. Brand Voice & Tone Detection
-  if (lower.includes('brand voice') || lower.includes('tone should be') || lower.includes('sound like') || lower.includes('tone of voice')) {
-    const match = userText.match(/(?:brand voice|tone should be|sound like|tone of voice)\s+(?:is|are|should be)?\s*[:\-\s]*([^.!?\n]+)/i);
-    if (match && match[1]) {
-      extracted.push({
-        userId,
-        projectId,
-        sessionId,
-        category: 'brand_voice',
-        key: 'tone_and_voice_guideline',
-        value: match[1].trim(),
-        confidence: 0.95,
-      });
-    }
-  }
+  // Short texts unlikely to contain brand facts
+  if (!userText || userText.trim().length < 20) return [];
 
-  // 3. Competitor Positioning Detection
-  if (lower.includes('competitor') || lower.includes('competing with') || lower.includes('alternative to')) {
-    const match = userText.match(/(?:competitor|competing with|alternative to)\s+(?:is|are)?\s*[:\-\s]*([^.!?\n]+)/i);
-    if (match && match[1]) {
-      extracted.push({
-        userId,
-        projectId,
-        sessionId,
-        category: 'competitor_positioning',
-        key: 'key_competitor',
-        value: match[1].trim(),
-        confidence: 0.88,
-      });
-    }
-  }
-
-  // 4. Campaign Rules / Constraints Detection
-  if (lower.includes('never use') || lower.includes('always include') || lower.includes('budget limit') || lower.includes('do not use')) {
-    const match = userText.match(/(?:never use|always include|budget limit|do not use)\s*[:\-\s]*([^.!?\n]+)/i);
-    if (match && match[1]) {
-      extracted.push({
-        userId,
-        projectId,
-        sessionId,
-        category: 'campaign_learning',
-        key: 'campaign_constraint',
-        value: match[1].trim(),
-        confidence: 0.90,
-      });
-    }
-  }
-
-  if (extracted.length === 0) return [];
+  // Step 1: Extract facts using LLM
+  const facts = await extractFactsWithLLM(userText);
+  if (facts.length === 0) return [];
 
   const now = new Date().toISOString();
   const savedItems: BrandMemoryItem[] = [];
   const supabase = getSupabaseServerClient() as SupabaseClient | null;
 
-  for (const item of extracted) {
+  for (const fact of facts) {
     const memoryId = crypto.randomUUID();
-    const textToEmbed = `${item.category}: ${item.key} = ${item.value}`;
+    const textToEmbed = `${fact.category}: ${fact.key} = ${fact.value}`;
     let embedding: number[] | undefined;
 
     try {
       embedding = await defaultEmbeddingGateway.embedText(textToEmbed);
-    } catch (_) {}
+    } catch (_) {
+      console.warn('[BrandMemory] Could not embed fact, skipping dedup check.');
+    }
 
-    const memoryRecord: BrandMemoryItem = {
-      id: memoryId,
-      userId: item.userId,
-      projectId: item.projectId,
-      sessionId: item.sessionId,
-      category: item.category,
-      key: item.key,
-      value: item.value,
-      confidence: item.confidence,
-      status: 'active',
-      embedding,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    // ── CONFLICT RESOLUTION IN SUPABASE ─────────────────────
     if (supabase) {
       try {
-        // If an active memory with the same key & category exists in this project, mark it superseded
-        const { data: existing } = await supabase
+        // Fetch existing active memories with same key in this project
+        const { data: existingMemories } = await supabase
           .from('brand_memories')
-          .select('id, memory_value')
-          .eq('category', item.category)
-          .eq('memory_key', item.key)
-          .eq('status', 'active')
-          .match(item.projectId ? { project_id: item.projectId } : { user_id: item.userId || '' });
+          .select('id, memory_value, embedding, status')
+          .eq('category', fact.category)
+          .eq('memory_key', fact.key)
+          .eq('project_id', projectId)
+          .eq('status', 'active');
 
-        if (existing && existing.length > 0) {
-          for (const oldMem of existing) {
-            if (oldMem.memory_value.trim().toLowerCase() !== item.value.trim().toLowerCase()) {
-              // Values conflict: supersede old memory
+        let shouldInsert = true;
+
+        for (const existing of existingMemories || []) {
+          const existingEmbedding = existing.embedding as number[] | null;
+
+          if (embedding && existingEmbedding && existingEmbedding.length > 0) {
+            const similarity = cosineSimilarity(embedding, existingEmbedding);
+
+            if (similarity > 0.85) {
+              // Semantically duplicate — skip insertion
+              console.log(`[BrandMemory] Dedup: "${fact.value}" is semantically similar to existing memory (cos=${similarity.toFixed(3)})`);
+              shouldInsert = false;
+              break;
+            } else if (similarity < 0.70) {
+              // Semantic conflict — mark existing as conflicted
+              await supabase
+                .from('brand_memories')
+                .update({ status: 'conflicted', superseded_by: memoryId, updated_at: now })
+                .eq('id', existing.id);
+            } else {
+              // Overlapping but not clearly duplicate or conflicting — supersede old
               await supabase
                 .from('brand_memories')
                 .update({ status: 'superseded', superseded_by: memoryId, updated_at: now })
-                .eq('id', oldMem.id);
+                .eq('id', existing.id);
+            }
+          } else {
+            // No embeddings available — fall back to string comparison
+            if (existing.memory_value.trim().toLowerCase() === fact.value.trim().toLowerCase()) {
+              shouldInsert = false;
+              break;
+            } else {
+              await supabase
+                .from('brand_memories')
+                .update({ status: 'superseded', superseded_by: memoryId, updated_at: now })
+                .eq('id', existing.id);
             }
           }
         }
 
-        // Insert new active memory
-        await supabase.from('brand_memories').insert({
-          id: memoryId,
-          user_id: item.userId || null,
-          project_id: item.projectId || null,
-          session_id: item.sessionId || null,
-          category: item.category,
-          memory_key: item.key,
-          memory_value: item.value,
-          confidence: item.confidence,
-          status: 'active',
-          embedding: embedding || null,
-          created_at: now,
-          updated_at: now,
-        });
+        if (shouldInsert) {
+          await supabase.from('brand_memories').insert({
+            id: memoryId,
+            user_id: userId || null,
+            project_id: projectId,
+            session_id: sessionId || null,
+            category: fact.category,
+            memory_key: fact.key,
+            memory_value: fact.value,
+            confidence: fact.confidence,
+            status: 'active',
+            embedding: embedding || null,
+            created_at: now,
+            updated_at: now,
+          });
+
+          savedItems.push({
+            id: memoryId,
+            userId,
+            projectId,
+            sessionId,
+            category: toMemoryCategory(fact.category),
+            key: fact.key,
+            value: fact.value,
+            confidence: fact.confidence,
+            status: 'active',
+            embedding,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
       } catch (dbErr) {
-        console.warn('[BrandMemory] Database upsert warning:', dbErr);
+        console.warn('[BrandMemory] Database operation warning:', dbErr);
       }
     }
 
-    // Local file fallback
-    ensureDir(MEMORIES_DIR);
-    const localPath = path.join(MEMORIES_DIR, 'memories.json');
-    let localList: BrandMemoryItem[] = [];
-    if (fs.existsSync(localPath)) {
-      try { localList = JSON.parse(fs.readFileSync(localPath, 'utf-8')); } catch (_) { localList = []; }
-    }
+    // Local storage fallback if Supabase was unavailable or failed
+    if (savedItems.length === 0 && process.env.NODE_ENV !== 'production' && process.env.STORAGE_MODE === 'local') {
+      const fs = await import('fs');
+      const path = await import('path');
+      const MEMORIES_DIR = path.resolve(process.cwd(), '.data', 'memories');
+      if (!fs.existsSync(MEMORIES_DIR)) fs.mkdirSync(MEMORIES_DIR, { recursive: true });
 
-    // Mark previous active memory with same key and project as superseded locally
-    localList.forEach((m) => {
-      if (
-        m.category === item.category &&
-        m.key === item.key &&
-        m.status === 'active' &&
-        m.projectId === item.projectId &&
-        m.value.toLowerCase() !== item.value.toLowerCase()
-      ) {
-        m.status = 'superseded';
-        m.supersededBy = memoryId;
-        m.updatedAt = now;
+      const localPath = path.join(MEMORIES_DIR, 'memories.json');
+      let localList: BrandMemoryItem[] = [];
+      if (fs.existsSync(localPath)) {
+        try { localList = JSON.parse(fs.readFileSync(localPath, 'utf-8')); } catch (_) { localList = []; }
       }
-    });
 
-    localList.unshift(memoryRecord);
-    fs.writeFileSync(localPath, JSON.stringify(localList, null, 2), 'utf-8');
-    savedItems.push(memoryRecord);
+      const newRecord: BrandMemoryItem = {
+        id: memoryId,
+        userId,
+        projectId,
+        sessionId,
+        category: toMemoryCategory(fact.category),
+        key: fact.key,
+        value: fact.value,
+        confidence: fact.confidence,
+        status: 'active',
+        embedding,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      localList = localList.filter(
+        (m) => !(m.category === fact.category && m.key === fact.key && m.projectId === projectId && m.status === 'active')
+      );
+      localList.unshift(newRecord);
+      fs.writeFileSync(localPath, JSON.stringify(localList, null, 2), 'utf-8');
+      savedItems.push(newRecord);
+    } else if (savedItems.length === 0 && !supabase) {
+      console.warn('[BrandMemory] Supabase unavailable. Memory not persisted (production mode).');
+    }
   }
 
   return savedItems;

@@ -34,9 +34,21 @@ yarn-error.log*
 .env*
 !.env.example
 
+# Local durable fallback stores — must never be committed
+.data/
+
+# Public uploads (user-uploaded files)
+/public/uploads/
+
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Never commit exported archives — they may contain secrets
+*.zip
+*.tar.gz
+*.tar
+Infinall_Project*.zip

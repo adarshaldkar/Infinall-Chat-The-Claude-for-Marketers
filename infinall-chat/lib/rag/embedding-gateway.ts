@@ -183,11 +183,15 @@ export class EmbeddingGateway {
 
       return data.embeddings.map((e: { values: number[] }) => {
         const vec = e.values;
-        // Pad or truncate to 1536 if provider dimension differs
-        if (vec.length < EMBEDDING_DIMENSION) {
-          return [...vec, ...new Array(EMBEDDING_DIMENSION - vec.length).fill(0)];
+        // Validate dimension strictly — never pad or truncate.
+        // The outputDimensionality parameter should guarantee 1536 from the API.
+        if (vec.length !== EMBEDDING_DIMENSION) {
+          throw new Error(
+            `[EmbeddingGateway] Gemini returned ${vec.length} dimensions, expected ${EMBEDDING_DIMENSION}. ` +
+            `Check outputDimensionality in the request or switch to text-embedding-3-small (OpenAI).`
+          );
         }
-        return vec.slice(0, EMBEDDING_DIMENSION);
+        return vec;
       });
     } finally {
       clearTimeout(timeoutId);

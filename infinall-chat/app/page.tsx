@@ -21,6 +21,8 @@ import ToolsDirectoryModal from "@/components/directory/ToolsDirectoryModal";
 import { KnowledgeBaseModal } from "@/components/knowledge/KnowledgeBaseModal";
 import { MemoryViewerModal } from "@/components/knowledge/MemoryViewerModal";
 import ProjectManager from "@/components/projects/ProjectManager";
+import { CampaignPipeline } from "@/components/campaigns/CampaignPipeline";
+import { ApprovalCenter } from "@/components/approvals/ApprovalCenter";
 
 export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -29,6 +31,8 @@ export default function HomePage() {
   const [isToolsDirectoryOpen, setIsToolsDirectoryOpen] = useState(false);
   const [isKnowledgeBaseOpen, setIsKnowledgeBaseOpen] = useState(false);
   const [isBrandMemoryOpen, setIsBrandMemoryOpen] = useState(false);
+  const [isCampaignPipelineOpen, setIsCampaignPipelineOpen] = useState(false);
+  const [isApprovalCenterOpen, setIsApprovalCenterOpen] = useState(false);
   const [projects, setProjects] = useState<WorkspaceProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [isProjectManagerOpen, setIsProjectManagerOpen] = useState(false);
@@ -133,6 +137,8 @@ export default function HomePage() {
         onOpenToolsDirectory={() => setIsToolsDirectoryOpen(true)}
         onOpenKnowledgeBase={() => setIsKnowledgeBaseOpen(true)}
         onOpenBrandMemory={() => setIsBrandMemoryOpen(true)}
+        onOpenCampaignPipeline={() => setIsCampaignPipelineOpen(true)}
+        onOpenApprovalCenter={() => setIsApprovalCenterOpen(true)}
       />
       <main className="flex-1 min-w-0 overflow-hidden relative">
         <button onClick={() => setIsProjectManagerOpen(true)} className="absolute right-4 top-3 z-20 rounded-lg border border-zinc-700 bg-zinc-900/90 px-3 py-1.5 text-[11px] font-medium text-zinc-300 shadow-lg hover:border-cyan-500/50 hover:text-cyan-300">Manage projects</button>
@@ -164,7 +170,50 @@ export default function HomePage() {
       <MemoryViewerModal
         isOpen={isBrandMemoryOpen}
         onClose={() => setIsBrandMemoryOpen(false)}
+        currentProjectId={activeProjectId || undefined}
       />
+
+      {/* Campaign Pipeline Modal */}
+      {isCampaignPipelineOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-6 animate-in fade-in duration-200">
+          <div className="relative bg-neutral-950 border border-neutral-800 rounded-2xl w-full max-w-6xl h-[90vh] shadow-2xl flex flex-col overflow-hidden">
+            <button
+              onClick={() => setIsCampaignPipelineOpen(false)}
+              className="absolute top-4 right-4 z-20 p-2 rounded-xl bg-neutral-900/80 border border-neutral-800 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition"
+              title="Close Campaign Pipeline"
+            >
+              ✕
+            </button>
+            <div className="flex-1 h-full overflow-hidden">
+              <CampaignPipeline
+                currentProjectId={activeProjectId || undefined}
+                onClose={() => setIsCampaignPipelineOpen(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Approval Center Modal */}
+      {isApprovalCenterOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-6 animate-in fade-in duration-200">
+          <div className="relative bg-neutral-950 border border-neutral-800 rounded-2xl w-full max-w-4xl h-[85vh] shadow-2xl flex flex-col overflow-hidden">
+            <button
+              onClick={() => setIsApprovalCenterOpen(false)}
+              className="absolute top-4 right-4 z-20 p-2 rounded-xl bg-neutral-900/80 border border-neutral-800 text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition"
+              title="Close Approval Center"
+            >
+              ✕
+            </button>
+            <div className="flex-1 h-full overflow-hidden">
+              <ApprovalCenter
+                currentProjectId={activeProjectId || undefined}
+                onClose={() => setIsApprovalCenterOpen(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <ProjectManager
         isOpen={isProjectManagerOpen}

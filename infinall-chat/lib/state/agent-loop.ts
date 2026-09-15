@@ -70,7 +70,6 @@ export async function* runAgentLoop(
 ): AsyncGenerator<CanonicalSSEEvent> {
   const signal = abortSignal ?? new AbortController().signal;
   const policy: AgentPolicy = { ...DEFAULT_AGENT_POLICY, ...config.policy };
-  const model: ModelCatalogEntry = getModel(config.selectedModelId);
 
   // 1. Deferred Tool Discovery: Combine Planner recommendations with Tool Catalog search
   const lastUserMsg = config.messages.filter((m) => m.role === 'user').pop();
@@ -82,6 +81,8 @@ export async function* runAgentLoop(
         .map((b) => ('text' in b ? b.text : ''))
         .join(' ')
     : '';
+
+  const model: ModelCatalogEntry = getModel(config.selectedModelId, userText);
 
   const candidateTools = resolveCandidateTools(config.plan.candidate_tools, userText);
   const candidateToolSchemas: ToolSchema[] = candidateTools.map((t) => ({

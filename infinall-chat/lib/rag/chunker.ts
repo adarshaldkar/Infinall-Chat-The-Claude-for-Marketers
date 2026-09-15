@@ -20,13 +20,15 @@ export interface TextChunk {
 }
 
 export interface ChunkerOptions {
-  targetTokens?: number; // Default: 500 (~2000 chars)
-  overlapTokens?: number; // Default: 80 (~320 chars)
-  minChunkTokens?: number; // Default: 40 (~160 chars)
+  targetTokens?: number; // Default: 512 (~1945 chars at 3.8 chars/token)
+  overlapTokens?: number; // Default: 64 (~243 chars)
+  minChunkTokens?: number; // Default: 40 (~152 chars)
 }
 
+// More accurate than /4. GPT-4 averages ~3.8 chars per token for English text.
+// Use this approximation unless `tiktoken` is available.
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  return Math.ceil(text.length / 3.8);
 }
 
 function computeHash(content: string): string {
@@ -37,9 +39,10 @@ export function chunkDocument(
   doc: ParsedDocument | any,
   options: ChunkerOptions = {}
 ): TextChunk[] {
-  const targetChars = (options.targetTokens || 500) * 4;
-  const overlapChars = (options.overlapTokens || 80) * 4;
-  const minChars = (options.minChunkTokens || 40) * 4;
+  // 512 target, 64 overlap = agreed production spec
+  const targetChars = (options.targetTokens ?? 512) * 4;
+  const overlapChars = (options.overlapTokens ?? 64) * 4;
+  const minChars = (options.minChunkTokens ?? 40) * 4;
 
   const chunks: TextChunk[] = [];
   let chunkIndex = 0;

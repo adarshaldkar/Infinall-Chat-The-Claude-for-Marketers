@@ -11,7 +11,7 @@ import { z } from 'zod';
 export const PlannerOutputSchema = z.object({
   task_type: z.enum(['strategy', 'campaign_build', 'copywriting', 'analytics', 'general']),
   complexity: z.enum(['simple', 'moderate', 'complex']),
-  recommended_model: z.enum(['claude-sonnet-4-6', 'claude-opus-5', 'gpt-5-6', 'Kimi-K2.6']),
+  recommended_model: z.enum(['claude-sonnet-4-6', 'claude-opus-5', 'gpt-5-6']),
   candidate_tools: z.array(z.string()),
   expected_artifact_type: z
     .enum(['html', 'react', 'markdown', 'docx', 'pptx', 'xlsx'])
@@ -30,7 +30,7 @@ Respond ONLY with a valid JSON object matching this schema exactly:
 {
   "task_type": "strategy" | "campaign_build" | "copywriting" | "analytics" | "general",
   "complexity": "simple" | "moderate" | "complex",
-  "recommended_model": "claude-sonnet-4-6" | "claude-opus-5" | "gpt-5-6" | "Kimi-K2.6",
+  "recommended_model": "claude-sonnet-4-6" | "claude-opus-5" | "gpt-5-6",
   "candidate_tools": ["web_search"] | [],
   "expected_artifact_type": "html" | "react" | "markdown" | "docx" | "pptx" | "xlsx" | null,
   "research_likely": true | false,
@@ -39,9 +39,8 @@ Respond ONLY with a valid JSON object matching this schema exactly:
 
 Model Routing Rules (apply in order of priority):
 1. "claude-sonnet-4-6" → primary model for campaign builds, ad copy generation, interactive calculators, HTML artifacts, and marketing workflows
-2. "Kimi-K2.6" → fast factual queries, competitor teardowns, data extraction, and quick strategic lookups
-3. "claude-opus-5" → complex multi-step strategy, deep research synthesis, and high-stakes asks
-4. "gpt-5-6" → when user explicitly requests a second opinion or cross-model comparison
+2. "claude-opus-5" → complex multi-step strategy, deep research synthesis, brand positioning, and high-stakes asks
+3. "gpt-5-6" → fast structured JSON, data extraction, and second opinion / cross-model comparison
 
 Tool Rules:
 - If current information, competitor data, market pricing, or recent news needed → candidate_tools = ["web_search"]

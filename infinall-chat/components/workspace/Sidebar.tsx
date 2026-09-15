@@ -17,9 +17,13 @@ import {
   FileDown,
   Database,
   Brain,
+  Megaphone,
+  ShieldAlert,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChatSession } from "@/lib/state/session-store";
+import SettingsModal from "./SettingsModal";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -34,6 +38,8 @@ interface SidebarProps {
   onOpenToolsDirectory?: () => void;
   onOpenKnowledgeBase?: () => void;
   onOpenBrandMemory?: () => void;
+  onOpenCampaignPipeline?: () => void;
+  onOpenApprovalCenter?: () => void;
 }
 
 export default function Sidebar({
@@ -49,10 +55,13 @@ export default function Sidebar({
   onOpenToolsDirectory,
   onOpenKnowledgeBase,
   onOpenBrandMemory,
+  onOpenCampaignPipeline,
+  onOpenApprovalCenter,
 }: SidebarProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Filter sessions by search term across title and message content
   const filteredSessions = useMemo(() => {
@@ -324,14 +333,23 @@ export default function Sidebar({
             style={{ color: "var(--color-text-muted)" }}
           >
             <Brain className="w-4 h-4 text-purple-400" />
-            <span>Brand Memory & Continuity</span>
+            <span>Brand Brain</span>
           </button>
           <button
+            onClick={onOpenCampaignPipeline}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover:bg-zinc-800/60"
             style={{ color: "var(--color-text-muted)" }}
           >
-            <MessageSquare className="w-4 h-4 text-emerald-400" />
-            <span>Marketing Projects</span>
+            <Megaphone className="w-4 h-4 text-cyan-400" />
+            <span>Campaign Pipeline</span>
+          </button>
+          <button
+            onClick={onOpenApprovalCenter}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover:bg-zinc-800/60"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            <ShieldAlert className="w-4 h-4 text-amber-400" />
+            <span>Approval Center</span>
           </button>
         </div>
       </div>
@@ -373,21 +391,41 @@ export default function Sidebar({
 
       {/* Footer Profile */}
       <div
-        className="p-3 border-t mt-auto flex items-center gap-2"
+        className="p-3 border-t mt-auto flex items-center justify-between gap-2"
         style={{ borderColor: "var(--color-border)", background: "var(--color-sidebar)" }}
       >
-        <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-semibold text-zinc-200">
-          M
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-semibold text-zinc-200 shrink-0">
+            M
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium truncate" style={{ color: "var(--color-text)" }}>
+              Marketer
+            </p>
+            <p className="text-[10px] truncate" style={{ color: "var(--color-muted)" }}>
+              Enterprise Plan
+            </p>
+          </div>
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium truncate" style={{ color: "var(--color-text)" }}>
-            Marketer
-          </p>
-          <p className="text-[10px] truncate" style={{ color: "var(--color-muted)" }}>
-            Enterprise Plan
-          </p>
-        </div>
+
+        <button
+          onClick={() => setIsSettingsOpen(true)}
+          className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors shrink-0"
+          title="Workspace Settings & Retention"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
       </div>
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onRefreshSessions={() => {
+          // Re-trigger sessions state update
+          window.location.reload();
+        }}
+      />
     </aside>
   );
 }

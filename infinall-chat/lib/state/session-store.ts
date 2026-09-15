@@ -52,10 +52,40 @@ function normalizeSession(session: ChatSession): ChatSession {
   };
 }
 
+const memoryStore = new Map<string, string>();
+
+function getStorageItem(key: string): string | null {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return memoryStore.get(key) ?? null;
+    }
+  }
+  return memoryStore.get(key) ?? null;
+}
+
+function setStorageItem(key: string, value: string): void {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {}
+  }
+  memoryStore.set(key, value);
+}
+
+function removeStorageItem(key: string): void {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      localStorage.removeItem(key);
+    } catch {}
+  }
+  memoryStore.delete(key);
+}
+
 export function getStoredSessions(): ChatSession[] {
-  if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = getStorageItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed: ChatSession[] = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -66,23 +96,20 @@ export function getStoredSessions(): ChatSession[] {
 }
 
 export function saveStoredSessions(sessions: ChatSession[]): void {
-  if (typeof window === 'undefined') return;
   try {
     const normalized = sessions.map(normalizeSession);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    setStorageItem(STORAGE_KEY, JSON.stringify(normalized));
   } catch (e) {
-    console.error('Failed to persist chat sessions to localStorage', e);
+    console.error('Failed to persist chat sessions', e);
   }
 }
 
 export function getActiveSessionId(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(ACTIVE_SESSION_KEY);
+  return getStorageItem(ACTIVE_SESSION_KEY);
 }
 
 export function setActiveSessionId(id: string): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(ACTIVE_SESSION_KEY, id);
+  setStorageItem(ACTIVE_SESSION_KEY, id);
 }
 
 export function createNewSession(initialTitle?: string): ChatSession {
@@ -171,6 +198,99 @@ export async function persistRemoteSession(session: ChatSession): Promise<boolea
   } catch {
     return false;
   }
+}
+
+const ARCHIVED_STORAGE_KEY = 'infinall_archived_sessions_v1';
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+export interface ArchivedSessionRecord {
+  session: ChatSession;
+  archivedAt: number;
+  expiresAt: number;
+}
+
+export function getArchivedSessions(): ArchivedSessionRecord[] {
+  try {
+    const raw = getStorageItem(ARCHIVED_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: ArchivedSessionRecord[] = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // Filter out expired (> 30 days)
+    const now = Date.now();
+    const valid = parsed.filter((r) => r.expiresAt > now);
+    if (valid.length !== parsed.length) {
+      setStorageItem(ARCHIVED_STORAGE_KEY, JSON.stringify(valid));
+    }
+    return valid;
+  } catch {
+    return [];
+  }
+}
+
+export function archiveAllSessions(): { count: number } {
+  const current = getStoredSessions();
+  if (current.length === 0) return { count: 0 };
+
+  const now = Date.now();
+  const newArchived: ArchivedSessionRecord[] = current.map((s) => ({
+    session: s,
+    archivedAt: now,
+    expiresAt: now + THIRTY_DAYS_MS,
+  }));
+
+  const existing = getArchivedSessions();
+  setStorageItem(ARCHIVED_STORAGE_KEY, JSON.stringify([...newArchived, ...existing]));
+  
+  // Clear active sessions
+  saveStoredSessions([]);
+  removeStorageItem(ACTIVE_SESSION_KEY);
+
+  return { count: current.length };
+}
+
+export function restoreArchivedSessions(): { restoredCount: number } {
+  const archived = getArchivedSessions();
+  if (archived.length === 0) return { restoredCount: 0 };
+
+  const active = getStoredSessions();
+  const restoredSessions = archived.map((r) => r.session);
+  
+  // Merge without duplicates
+  const existingIds = new Set(active.map((s) => s.id));
+  const newToActive = restoredSessions.filter((s) => !existingIds.has(s.id));
+  
+  saveStoredSessions([...newToActive, ...active]);
+  removeStorageItem(ARCHIVED_STORAGE_KEY);
+
+  if (newToActive.length > 0) {
+    setActiveSessionId(newToActive[0].id);
+  }
+
+  return { restoredCount: newToActive.length };
+}
+
+export function exportAllDataAsJSON(): void {
+  if (typeof window === 'undefined') return;
+  const active = getStoredSessions();
+  const archived = getArchivedSessions();
+  const exportPayload = {
+    exportedAt: new Date().toISOString(),
+    version: '1.0.0',
+    activeSessionsCount: active.length,
+    archivedSessionsCount: archived.length,
+    sessions: active,
+    archivedSessions: archived,
+  };
+
+  const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `infinall_chat_backup_${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 export async function deleteRemoteSession(id: string): Promise<boolean> {

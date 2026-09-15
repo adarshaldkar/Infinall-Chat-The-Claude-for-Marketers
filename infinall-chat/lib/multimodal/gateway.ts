@@ -40,19 +40,18 @@ export class MultimodalGateway {
       return CreativeVisionAnalyzer.auditCreativeImage(fileName, mimeType, cleanBase64);
     }
 
+    // No image data available — return honest unavailable response.
+    // Do NOT fabricate scores or recommendations.
     return {
-      summary: `Analyzed image asset: ${fileName}`,
-      headlineHookScore: 8,
-      visualContrastScore: 8,
-      ctaProminenceScore: 7,
-      primaryFocalPoint: 'Visual Composition & Main Headline',
-      detectedText: fileName,
+      summary: `Image "${fileName}" uploaded but not available for analysis (no base64 data).`,
+      headlineHookScore: 0,
+      visualContrastScore: 0,
+      ctaProminenceScore: 0,
+      primaryFocalPoint: '',
+      detectedText: '',
       complianceRisks: [],
-      recommendations: [
-        'Ensure high visual contrast on mobile viewports',
-        'Place primary conversion trigger in the upper focal third',
-      ],
-      available: true,
+      recommendations: [],
+      available: false,
     };
   }
 
@@ -109,8 +108,12 @@ export class MultimodalGateway {
       snippet: `${sc.title}: ${sc.description.slice(0, 80)}`,
     }));
 
-    const summary = `Comprehensive video analysis for "${fileName}" (${Math.round(durationSeconds)}s). ` +
-      `Contains ${scenes.length} structured marketing scenes with verified timestamp citations.`;
+    // Determine if real analysis was performed (buffer provided and processed)
+    const wasReallyAnalyzed = !!buffer && transcript.length > 0;
+
+    const summary = wasReallyAnalyzed
+      ? `Video analysis for "${fileName}" (${Math.round(durationSeconds)}s). ${scenes.length} scene segments with timestamp citations.`
+      : `Video "${fileName}" uploaded (${Math.round(durationSeconds)}s estimated). Real-time scene analysis requires a vision-capable model. Timestamps are estimates only.`;
 
     return {
       summary,
@@ -118,17 +121,15 @@ export class MultimodalGateway {
       transcript,
       scenes,
       citations,
-      marketingSignals: {
-        hookStrengthScore: 9,
-        pacingScore: 8,
+      // Only emit marketing signals when real analysis occurred
+      marketingSignals: wasReallyAnalyzed ? {
+        hookStrengthScore: 0, // Requires real frame analysis
+        pacingScore: 0,       // Requires real scene analysis
         ctaTimestamp: scenes[scenes.length - 1]?.startSeconds || Math.max(0, durationSeconds - 15),
         keyTakeaways: scenes.map((s) => `${formatTimestamp(s.startSeconds)} - ${s.title}`),
-        objectionsAddressed: [
-          'Ease of setup and immediate time-to-value',
-          'Enterprise pricing transparency and team scalability',
-        ],
-      },
-      available: true,
+        objectionsAddressed: [], // Cannot be inferred without real content analysis
+      } : undefined,
+      available: wasReallyAnalyzed,
     };
   }
 }

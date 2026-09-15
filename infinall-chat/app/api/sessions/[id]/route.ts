@@ -54,6 +54,11 @@ export async function GET(
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   }
 
+  // SECURITY: Prevent IDOR — verify the session belongs to the authenticated user.
+  if (chatSession.user_id && chatSession.user_id !== session.userId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
   const { data: messages } = await supabase
     .from('chat_messages')
     .select('*')
@@ -126,11 +131,16 @@ export async function PATCH(
     .from('chat_sessions')
     .update(updatePayload)
     .eq('id', id)
+    .eq('user_id', session.userId) // SECURITY: Enforce ownership — only owner can modify
     .select()
     .single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (!data) {
+    return NextResponse.json({ error: 'Session not found or access denied' }, { status: 404 });
   }
 
   return NextResponse.json({ success: true, session: data });
@@ -149,10 +159,19 @@ export async function DELETE(
   const supabase = getSupabaseServerClient() as SupabaseClient | null;
   if (!supabase) return NextResponse.json({ error: 'Database unavailable' }, { status: 500 });
 
-  // Hard delete (will cascade delete messages and artifacts via foreign keys)
-  const { error } = await supabase.from('chat_sessions').delete().eq('id', id);
+  // Hard delete — enforces ownership via .eq('user_id') so RLS + application layer both protect
+  const { error, count } = await supabase
+    .from('chat_sessions')
+    .delete({ count: 'exact' })
+    .eq('id', id)
+    .eq('user_id', session.userId); // SECURITY: Prevent cross-user deletion
+
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (count === 0) {
+    return NextResponse.json({ error: 'Session not found or access denied' }, { status: 404 });
   }
 
   return NextResponse.json({ success: true, deleted: true });

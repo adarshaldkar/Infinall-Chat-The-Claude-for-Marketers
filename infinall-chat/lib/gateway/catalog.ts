@@ -28,17 +28,6 @@ export const MODEL_CATALOG: Record<string, ModelCatalogEntry> = {
     supportsPromptCaching: true,
     supportsVision: true,
   },
-  'Kimi-K2.6': {
-    id: 'Kimi-K2.6',
-    name: 'Kimi K2.6',
-    provider: 'openai',
-    apiType: 'chat-completions',
-    endpoint: `${process.env.LLM_GATEWAY_BASE_URL ?? 'https://llm.ganeshnayak.in'}/v1/chat/completions`,
-    contextWindow: 128_000,
-    supportsExtendedThinking: false,
-    supportsPromptCaching: false,
-    supportsVision: true,
-  },
   'claude-opus-5': {
     id: 'claude-opus-5',
     name: 'Claude Opus 5',
@@ -65,10 +54,43 @@ export const MODEL_CATALOG: Record<string, ModelCatalogEntry> = {
 
 export const DEFAULT_MODEL_ID = 'claude-sonnet-4-6';
 
-export function getModel(modelId: string): ModelCatalogEntry {
+export function resolveAutoModel(promptText?: string): ModelCatalogEntry {
+  if (!promptText) return MODEL_CATALOG[DEFAULT_MODEL_ID];
+  const lower = promptText.toLowerCase();
+
+  // Route high-stakes multi-channel strategy, deep research synthesis, or executive positioning to Opus 5
+  if (
+    lower.includes('deep research') ||
+    lower.includes('comprehensive strategy') ||
+    lower.includes('gtm roadmap') ||
+    lower.includes('brand positioning') ||
+    lower.includes('executive brief')
+  ) {
+    return MODEL_CATALOG['claude-opus-5'];
+  }
+
+  // Route heavy structured JSON, data extraction, or second opinion checks to GPT-5.6
+  if (
+    lower.includes('second opinion') ||
+    lower.includes('cross-model') ||
+    lower.includes('extract json') ||
+    lower.includes('format as csv')
+  ) {
+    return MODEL_CATALOG['gpt-5-6'];
+  }
+
+  // Default to Claude Sonnet 4.6 (workhorse for campaigns, copy, reasoning, artifacts)
+  return MODEL_CATALOG['claude-sonnet-4-6'];
+}
+
+export function getModel(modelId?: string, promptText?: string): ModelCatalogEntry {
+  if (!modelId || modelId === 'auto') {
+    return resolveAutoModel(promptText);
+  }
   const model = MODEL_CATALOG[modelId];
   if (!model) {
-    throw new Error(`Unknown model: ${modelId}. Valid models: ${Object.keys(MODEL_CATALOG).join(', ')}`);
+    // If unknown, fallback to default rather than crashing
+    return MODEL_CATALOG[DEFAULT_MODEL_ID];
   }
   return model;
 }

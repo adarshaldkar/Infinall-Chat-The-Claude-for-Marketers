@@ -53,6 +53,8 @@ const ROLE_PERMISSIONS: Record<UserRole, {
   },
 };
 
+// SECURITY: Dev session is only used when AUTH_MODE=dev is explicitly set.
+// This must NEVER be reachable in production environments.
 export const DEFAULT_DEV_SESSION: UserSession = {
   userId: 'usr_growth_lead_01',
   name: 'Adarsh (Growth Lead)',
@@ -62,9 +64,9 @@ export const DEFAULT_DEV_SESSION: UserSession = {
 };
 
 export async function extractSessionFromRequest(req: NextRequest): Promise<UserSession | null> {
-  if (process.env.AUTH_MODE === 'dev' || process.env.NODE_ENV === 'development') {
-    // In local development, check cookies first; if not present, use dev session
-  }
+  // SECURITY: In production, never fall back to dev session. Hard block.
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isDevMode = process.env.AUTH_MODE === 'dev';
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const publishableKey =
@@ -100,10 +102,13 @@ export async function extractSessionFromRequest(req: NextRequest): Promise<UserS
     if (!error && data?.user) {
       const metadata = data.user.app_metadata ?? {};
       const requestedRole = metadata.role;
+
+      // SECURITY: Default to 'viewer' (least privilege) when role metadata is absent.
+      // Never default to 'admin'.
       const role: UserRole =
         requestedRole === 'admin' || requestedRole === 'marketer' || requestedRole === 'viewer'
           ? requestedRole
-          : 'admin';
+          : 'viewer';
 
       return {
         userId: data.user.id,
@@ -115,16 +120,18 @@ export async function extractSessionFromRequest(req: NextRequest): Promise<UserS
     }
   }
 
-  // Fallback to DEFAULT_DEV_SESSION for local dev and testing
-  if (process.env.NODE_ENV !== 'production' || process.env.AUTH_MODE === 'dev') {
+  // SECURITY: Only allow dev session fallback when explicitly opted in via AUTH_MODE=dev
+  // AND not running in production.
+  if (!isProduction && isDevMode) {
     return DEFAULT_DEV_SESSION;
   }
 
+  // Production with no valid session → reject.
   return null;
 }
 
 export function checkPermission(session: UserSession, action: keyof typeof ROLE_PERMISSIONS['admin']): PermissionCheckResult {
-  const permissions = ROLE_PERMISSIONS[session.role] || ROLE_PERMISSIONS.viewer;
+  const permissions = ROLE_PERMISSIONS[session.role] ?? ROLE_PERMISSIONS.viewer;
   if (!permissions[action]) {
     return {
       allowed: false,

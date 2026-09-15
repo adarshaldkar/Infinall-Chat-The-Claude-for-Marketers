@@ -13,6 +13,19 @@ export interface SourceCitation {
   favicon?: string;
 }
 
+// Structured knowledge-base citation (first-class, not inferred from text)
+export interface KnowledgeCitation {
+  citationId: string;
+  documentId: string;
+  chunkId: string;
+  title: string;
+  pageNumber?: number;
+  sectionTitle?: string;
+  snippet: string;
+  score: number;
+  provider: 'knowledge_base' | 'web' | 'brand_memory';
+}
+
 export interface MutationDiff {
   account?: string;
   campaignName?: string;
@@ -74,7 +87,13 @@ export type CanonicalSSEEvent =
       };
     }
   | { type: 'error'; payload: { message: string; code: string; recoverable: boolean } }
-  | { type: 'done'; payload: { finishReason: string } };
+  | { type: 'done'; payload: { finishReason: string } }
+  | {
+      type: 'citations';
+      payload: {
+        citations: KnowledgeCitation[];
+      };
+    };
 
 // ============================================================
 // LLM Message Types

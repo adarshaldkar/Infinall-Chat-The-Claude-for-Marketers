@@ -31,7 +31,9 @@ const RequestSchema = z.object({
   activeArtifact: z.object({ id: z.string(), title: z.string(), type: z.string(), content: z.string().optional() }).nullable().optional(),
 });
 
-function normalizeContent(content: string | unknown[]): string {
+// Extract plain text from content blocks for planning / skill resolution / RAG.
+// Does NOT strip image blocks from the message sent to the LLM.
+function extractTextForPlanning(content: string | unknown[]): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
     return content
@@ -41,7 +43,8 @@ function normalizeContent(content: string | unknown[]): string {
           const obj = part as Record<string, unknown>;
           if (typeof obj.text === 'string') return obj.text;
           if (obj.type === 'text' && typeof obj.text === 'string') return obj.text;
-          if (obj.type === 'image') return '[Attached Marketing Image / Creative Asset]';
+          // Image blocks: extract filename hint if present but don't fabricate analysis
+          if (obj.type === 'image') return '[Image attached]';
         }
         return '';
       })
@@ -130,13 +133,12 @@ export async function POST(req: NextRequest) {
         enqueue({ type: 'plan_start', payload: { taskId: sessionId } });
 
         const lastMsg = messages[messages.length - 1];
+        // Extract plain text for planning / RAG / skill resolution.
+        // The full multimodal content (including images) is preserved separately for the LLM.
         const rawUserMessage = typeof lastMsg?.content === 'string'
           ? lastMsg.content
           : Array.isArray(lastMsg?.content)
-          ? (lastMsg.content as LLMContentBlock[])
-              .filter((b) => b.type === 'text')
-              .map((b) => ('text' in b ? b.text : ''))
-              .join(' ')
+          ? extractTextForPlanning(lastMsg.content)
           : '';
 
         const skillResolution = SkillResolver.resolveSkill(rawUserMessage);
@@ -161,21 +163,21 @@ export async function POST(req: NextRequest) {
             .join('\n\n');
           ragKnowledgeContext = `\n<knowledge_context>\nVerified Knowledge Base documents retrieved for this query:\n${chunkLines}\nGround your response in these verified documents and cite the sources when referencing them.\n</knowledge_context>\n`;
 
-          // Emit citation metadata to client stream
+          // Emit structured citation events (first-class, not piggybacked on tool_call_result)
           enqueue({
-            type: 'tool_call_result',
+            type: 'citations',
             payload: {
-              callId: 'knowledge_retriever',
-              toolName: 'knowledge_retriever',
-              result: {
-                totalChunks: retrievedChunks.length,
-                citations: retrievedChunks.map(c => ({
-                  citation: c.citation,
-                  title: c.documentTitle,
-                  pageNumber: c.pageNumber,
-                  snippet: c.content.slice(0, 150) + '...',
-                })),
-              },
+              citations: retrievedChunks.map((c, idx) => ({
+                citationId: `kc-${idx + 1}`,
+                documentId: c.documentId,
+                chunkId: c.id,
+                title: c.documentTitle,
+                pageNumber: c.pageNumber,
+                sectionTitle: c.sectionTitle,
+                snippet: c.content.slice(0, 200),
+                score: c.score,
+                provider: 'knowledge_base',
+              })),
             },
           });
         }
@@ -216,9 +218,38 @@ export async function POST(req: NextRequest) {
           ?? (MODEL_CATALOG[plan.recommended_model] ? plan.recommended_model : DEFAULT_MODEL_ID);
 
         // Step 2: Assemble System Prompt with Skills + Brand Memory + RAG Knowledge
-        // Step 3: Convert messages to LLMMessage format
+        // Step 3: Convert messages to LLMMessage format.
+        // CRITICAL: Preserve multimodal content blocks (images) on the last message.
+        // Only extract plain text for planning / skills — not for the actual LLM payload.
         const llmMessages: LLMMessage[] = messages.map((m, idx) => {
           if (idx === messages.length - 1) {
+            // Preserve the full content array (which may contain image blocks)
+            // if the message has multimodal content. Replace with cleaned text only
+            // when the content is already a plain string.
+            if (typeof m.content === 'string') {
+              return {
+                role: m.role as 'user' | 'assistant',
+                content: cleanedUserMessage,
+              };
+            }
+            // Multimodal: keep image blocks intact, replace text blocks with cleaned text
+            const blocks = m.content as LLMContentBlock[];
+            const hasImages = blocks.some((b) => b.type === 'image');
+            if (hasImages) {
+              // Replace only the first text block with the cleaned message; keep all image blocks
+              let replacedText = false;
+              const newBlocks: LLMContentBlock[] = blocks.map((b) => {
+                if (b.type === 'text' && !replacedText) {
+                  replacedText = true;
+                  return { type: 'text' as const, text: cleanedUserMessage || b.text };
+                }
+                return b;
+              });
+              if (!replacedText && cleanedUserMessage) {
+                newBlocks.unshift({ type: 'text', text: cleanedUserMessage });
+              }
+              return { role: m.role as 'user' | 'assistant', content: newBlocks };
+            }
             return {
               role: m.role as 'user' | 'assistant',
               content: cleanedUserMessage,

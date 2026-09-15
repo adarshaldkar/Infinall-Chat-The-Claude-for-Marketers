@@ -17,6 +17,7 @@ interface SkillsMenuPopoverProps {
   filterText: string;
   onSelectSkill: (slug: string) => void;
   onClose: () => void;
+  onOpenCreateSkill?: () => void;
 }
 
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -33,13 +34,29 @@ export default function SkillsMenuPopover({
   filterText,
   onSelectSkill,
   onClose,
+  onOpenCreateSkill,
 }: SkillsMenuPopoverProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [allSkills, setAllSkills] = useState(BUILTIN_SKILLS);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Fetch updated skills from API
+  useEffect(() => {
+    if (isOpen) {
+      fetch("/api/skills")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.skills && Array.isArray(data.skills)) {
+            setAllSkills(data.skills);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isOpen]);
 
   const cleanFilter = filterText.replace(/^\//, "").toLowerCase().trim();
 
-  const filteredSkills = BUILTIN_SKILLS.filter(
+  const filteredSkills = allSkills.filter(
     (s) =>
       s.slug.toLowerCase().includes(cleanFilter) ||
       s.name.toLowerCase().includes(cleanFilter) ||
@@ -77,12 +94,12 @@ export default function SkillsMenuPopover({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, filteredSkills, selectedIndex, onSelectSkill, onClose]);
 
-  if (!isOpen || filteredSkills.length === 0) return null;
+  if (!isOpen) return null;
 
   return (
     <div
       ref={containerRef}
-      className="absolute bottom-full left-0 mb-2 w-80 sm:w-96 rounded-xl border p-1.5 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-100 max-h-72 overflow-y-auto"
+      className="absolute bottom-full left-0 mb-2 w-80 sm:w-96 rounded-xl border p-1.5 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-100 max-h-80 overflow-y-auto"
       style={{
         borderColor: "var(--color-border)",
         background: "#09090b",
@@ -97,43 +114,64 @@ export default function SkillsMenuPopover({
       </div>
 
       <div className="space-y-1">
-        {filteredSkills.map((skill, idx) => {
-          const Icon = ICON_MAP[skill.icon] || Sparkles;
-          const isSelected = selectedIndex === idx;
+        {filteredSkills.length === 0 ? (
+          <div className="px-3 py-4 text-center text-xs text-zinc-500 italic">
+            No matching skills found
+          </div>
+        ) : (
+          filteredSkills.map((skill, idx) => {
+            const Icon = ICON_MAP[skill.icon] || Sparkles;
+            const isSelected = selectedIndex === idx;
 
-          return (
-            <button
-              key={skill.slug}
-              onClick={() => onSelectSkill(skill.slug)}
-              onMouseEnter={() => setSelectedIndex(idx)}
-              className={`w-full flex items-start gap-2.5 p-2 rounded-lg text-left transition-all ${
-                isSelected
-                  ? "bg-cyan-500/10 border border-cyan-500/30 text-zinc-100"
-                  : "border border-transparent text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              <div
-                className={`p-1.5 rounded-md shrink-0 mt-0.5 ${
-                  isSelected ? "bg-cyan-500/20 text-cyan-400" : "bg-zinc-800 text-zinc-400"
+            return (
+              <button
+                key={skill.slug}
+                onClick={() => onSelectSkill(skill.slug)}
+                onMouseEnter={() => setSelectedIndex(idx)}
+                className={`w-full flex items-start gap-2.5 p-2 rounded-lg text-left transition-all ${
+                  isSelected
+                    ? "bg-cyan-500/10 border border-cyan-500/30 text-zinc-100"
+                    : "border border-transparent text-zinc-400 hover:text-zinc-200"
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-xs font-semibold text-zinc-100">{skill.name}</span>
-                  <span className="text-[10px] font-mono font-medium text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800/40">
-                    {skill.slug}
-                  </span>
+                <div
+                  className={`p-1.5 rounded-md shrink-0 mt-0.5 ${
+                    isSelected ? "bg-cyan-500/20 text-cyan-400" : "bg-zinc-800 text-zinc-400"
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
                 </div>
-                <p className="text-[11px] text-zinc-400 line-clamp-1 mt-0.5 leading-relaxed">
-                  {skill.description}
-                </p>
-              </div>
-            </button>
-          );
-        })}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-xs font-semibold text-zinc-100">{skill.name}</span>
+                    <span className="text-[10px] font-mono font-medium text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800/40">
+                      {skill.slug}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400 line-clamp-1 mt-0.5 leading-relaxed">
+                    {skill.description}
+                  </p>
+                </div>
+              </button>
+            );
+          })
+        )}
       </div>
+
+      {onOpenCreateSkill && (
+        <div className="mt-1 pt-1.5 border-t border-zinc-800/60">
+          <button
+            onClick={() => {
+              onClose();
+              onOpenCreateSkill();
+            }}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg text-xs font-medium text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 border border-dashed border-cyan-500/30 transition-all"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>+ Create Custom Skill</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

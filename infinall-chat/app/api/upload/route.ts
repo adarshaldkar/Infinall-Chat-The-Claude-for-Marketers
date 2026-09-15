@@ -176,8 +176,11 @@ export async function POST(req: NextRequest) {
           });
         }
       } catch (vidErr) {
-        console.warn('[Upload API] Video processing fallback:', vidErr);
-        attachment.extractedText = `[Uploaded Video Asset: "${fileName}", Size: ${Math.round(sizeBytes / 1024 / 1024 * 10) / 10}MB, Format: ${fileExt.toUpperCase()}]\nAnalyze this video asset for marketing positioning and conversion hooks.`;
+        console.warn('[Upload API] Video processing unavailable:', vidErr);
+        // SECURITY: Do NOT fabricate synthetic analysis or marketing insights.
+        // Set available=false so the UI can display 'Video analysis unavailable'.
+        attachment.videoAnalysis = null as unknown as typeof attachment.videoAnalysis;
+        // extractedText left undefined intentionally — no synthetic content.
       }
     } else if (kind === 'document') {
       // Run canonical document parsing via ParserRegistry

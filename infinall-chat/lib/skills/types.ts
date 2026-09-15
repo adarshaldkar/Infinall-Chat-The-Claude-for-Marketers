@@ -18,6 +18,8 @@ export interface SkillManifest {
   triggerKeywords: string[];
   icon: string;
   estimatedTokens: number;
+  scope?: 'personal' | 'team' | 'catalog';
+  projectId?: string;
 }
 
 export interface SkillRule {

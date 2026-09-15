@@ -4,17 +4,17 @@ import { useRef, useState, useEffect, KeyboardEvent } from "react";
 import { Send, Square, Mic, ChevronDown, Loader2, Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
 import SkillsMenuPopover from "@/components/skills/SkillsMenuPopover";
+import SkillCreateModal from "@/components/skills/SkillCreateModal";
 import ResearchModeToggle from "@/components/research/ResearchModeToggle";
 import AttachmentPreviewBar from "@/components/multimodal/AttachmentPreviewBar";
 import AttachMenuPopover from "@/components/chat/AttachMenuPopover";
 import { UploadedAttachment } from "@/lib/multimodal/types";
 
 const MODELS = [
-  { id: "auto", label: "⚡ Auto", description: "Planner picks the best model" },
-  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", description: "Best for campaigns & copy" },
-  { id: "Kimi-K2.6", label: "Kimi K2.6", description: "Fast factual queries & reasoning" },
-  { id: "claude-opus-5", label: "Claude Opus 5", description: "Best for deep strategy & research" },
-  { id: "gpt-5-6", label: "GPT-5.6", description: "Second opinion & cross-model check" },
+  { id: "auto", label: "⚡ Auto", description: "Intelligent dynamic intent routing" },
+  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", description: "Default: fast speed, campaigns & copy" },
+  { id: "claude-opus-5", label: "Claude Opus 5", description: "Deep strategy, high complexity & research" },
+  { id: "gpt-5-6", label: "GPT-5.6", description: "Structured JSON, data analysis & cross-model check" },
 ];
 
 interface ComposerProps {
@@ -72,19 +72,17 @@ export default function Composer({ isGenerating, onSend, onStop }: ComposerProps
       .then((data) => {
         if (data.models && Array.isArray(data.models) && data.models.length > 0) {
           const dynamicList = [
-            { id: "auto", label: "⚡ Auto", description: "Planner picks the best model" },
+            { id: "auto", label: "⚡ Auto", description: "Intelligent dynamic intent routing" },
             ...data.models.map((m: CatalogModel) => ({
               id: m.id,
               label: m.name || m.id,
               description:
                 m.id === "claude-sonnet-4-6"
-                  ? "Best for campaigns & copy"
-                  : m.id === "Kimi-K2.6"
-                  ? "Fast factual queries & reasoning"
+                  ? "Default: fast speed, campaigns & copy"
                   : m.id === "claude-opus-5"
-                  ? "Best for deep strategy & research"
+                  ? "Deep strategy, high complexity & research"
                   : m.id === "gpt-5-6"
-                  ? "Second opinion & cross-model check"
+                  ? "Structured JSON, data analysis & cross-model check"
                   : `${m.provider ?? "Gateway"} model`,
             })),
           ];
@@ -106,6 +104,7 @@ export default function Composer({ isGenerating, onSend, onStop }: ComposerProps
 
   // Slash skills state
   const [isSkillsMenuOpen, setIsSkillsMenuOpen] = useState(false);
+  const [isCreateSkillOpen, setIsCreateSkillOpen] = useState(false);
   const [skillsFilter, setSkillsFilter] = useState("");
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -366,6 +365,18 @@ const SpeechRecognition =
         filterText={skillsFilter}
         onSelectSkill={handleSelectSkill}
         onClose={() => setIsSkillsMenuOpen(false)}
+        onOpenCreateSkill={() => setIsCreateSkillOpen(true)}
+      />
+
+      {/* Interactive Custom Skill Creation Modal */}
+      <SkillCreateModal
+        isOpen={isCreateSkillOpen}
+        onClose={() => setIsCreateSkillOpen(false)}
+        onSkillCreated={(newSkill) => {
+          setIsCreateSkillOpen(false);
+          setValue(`${newSkill.slug} `);
+          textareaRef.current?.focus();
+        }}
       />
 
       {/* Attachment Chips Bar */}
