@@ -3,11 +3,16 @@ import { LLMMessage } from '@/lib/gateway/types';
 export interface ContextAssemblyInput {
   systemInstructions?: string;
   projectInstructions?: string;
+  brandContext?: string;
   brandMemory?: string;
+  memoryContext?: string;
   knowledgeContext?: string;
+  connectedTools?: string | string[];
   toolIndex?: string;
-  history: LLMMessage[];
   activeArtifact?: { id: string; title: string; type: string; content?: string } | null;
+  multimodalContext?: string;
+  skillContext?: string;
+  history: LLMMessage[];
   maxHistoryChars?: number;
 }
 
@@ -16,6 +21,15 @@ export interface AssembledContext {
   messages: LLMMessage[];
   estimatedTokens: number;
   compacted: boolean;
+  canonicalBlocks: {
+    brandContext?: string;
+    memoryContext?: string;
+    knowledgeContext?: string;
+    connectedTools?: string;
+    activeArtifact?: string;
+    multimodalContext?: string;
+    skillContext?: string;
+  };
 }
 
 /**
@@ -39,12 +53,6 @@ function messageToText(msg: LLMMessage): string {
  * 2. For older messages beyond the budget: keep a short prefix of each to
  *    preserve conversational grounding rather than dropping them entirely.
  * 3. Image blocks are always preserved on the last user message.
- *
- * This is significantly better than just clipping characters from recent messages,
- * which destroys mid-conversation context without any summary.
- *
- * Future: replace the summarized-older-messages section with an LLM-generated
- * summary of the dropped history (semantic compaction).
  */
 function compactHistory(
   history: LLMMessage[],
@@ -64,12 +72,10 @@ function compactHistory(
   const headBudget = Math.max(0, maxChars - tailChars);
 
   if (head.length === 0 || headBudget <= 0) {
-    // No budget for history head — return tail only
     return { messages: tail, compacted: true };
   }
 
-  // Phase 2: Include as many earlier messages as fit, keeping each trimmed to
-  // a short prefix so the model retains conversational grounding.
+  // Phase 2: Include as many earlier messages as fit, keeping each trimmed
   const MAX_OLDER_MSG_CHARS = Math.floor(headBudget / Math.max(1, head.length));
   const CLIP_CHARS = Math.max(200, Math.min(MAX_OLDER_MSG_CHARS, 800));
 
@@ -99,22 +105,72 @@ function compactHistory(
 
 export function assembleContext(input: ContextAssemblyInput): AssembledContext {
   const history = compactHistory(input.history, input.maxHistoryChars ?? 80_000);
+  
+  // Format discrete PRD XML blocks
+  const brandBlock = input.brandContext 
+    ? `<brand_context>\n${input.brandContext.trim()}\n</brand_context>` 
+    : '';
+
+  const memoryRaw = input.memoryContext || input.brandMemory;
+  const memoryBlock = memoryRaw 
+    ? (memoryRaw.startsWith('<memory_context>') ? memoryRaw : `<memory_context>\n${memoryRaw.trim()}\n</memory_context>`)
+    : '';
+
+  const knowledgeBlock = input.knowledgeContext
+    ? (input.knowledgeContext.startsWith('<knowledge_context>') ? input.knowledgeContext : `<knowledge_context>\n${input.knowledgeContext.trim()}\n</knowledge_context>`)
+    : '';
+
+  const toolsList = Array.isArray(input.connectedTools) 
+    ? input.connectedTools.join(', ') 
+    : (input.connectedTools || input.toolIndex);
+    
+  const toolsBlock = toolsList 
+    ? `<connected_tools>\n${toolsList.trim()}\n</connected_tools>`
+    : '';
+
+  const artifactBlock = input.activeArtifact
+    ? `<active_artifact id="${input.activeArtifact.id}" type="${input.activeArtifact.type}" title="${input.activeArtifact.title}">\n${input.activeArtifact.content?.slice(-20_000) ?? input.activeArtifact.title}\n</active_artifact>`
+    : '';
+
+  const multimodalBlock = input.multimodalContext
+    ? `<multimodal_context>\n${input.multimodalContext.trim()}\n</multimodal_context>`
+    : '';
+
+  const skillBlock = input.skillContext
+    ? `<skill_context>\n${input.skillContext.trim()}\n</skill_context>`
+    : '';
+
+  const projectBlock = input.projectInstructions 
+    ? `<project_instructions>\n${input.projectInstructions.trim()}\n</project_instructions>` 
+    : '';
+
   const blocks = [
     input.systemInstructions,
-    input.projectInstructions ? `<project_instructions>\n${input.projectInstructions}\n</project_instructions>` : '',
-    input.brandMemory,
-    input.knowledgeContext,
-    input.toolIndex ? `<available_capabilities>\n${input.toolIndex}\n</available_capabilities>` : '',
-    input.activeArtifact
-      ? `<active_artifact id="${input.activeArtifact.id}" type="${input.activeArtifact.type}">\n${input.activeArtifact.content?.slice(-20_000) ?? input.activeArtifact.title}\n</active_artifact>`
-      : '',
+    projectBlock,
+    brandBlock,
+    memoryBlock,
+    knowledgeBlock,
+    toolsBlock,
+    artifactBlock,
+    multimodalBlock,
+    skillBlock,
   ].filter(Boolean).join('\n\n');
 
   const promptChars = blocks.length + history.messages.reduce((total, message) => total + messageToText(message).length, 0);
+  
   return {
     systemPrompt: blocks,
     messages: history.messages,
     estimatedTokens: Math.ceil(promptChars / 3.8),
     compacted: history.compacted,
+    canonicalBlocks: {
+      brandContext: brandBlock || undefined,
+      memoryContext: memoryBlock || undefined,
+      knowledgeContext: knowledgeBlock || undefined,
+      connectedTools: toolsBlock || undefined,
+      activeArtifact: artifactBlock || undefined,
+      multimodalContext: multimodalBlock || undefined,
+      skillContext: skillBlock || undefined,
+    }
   };
 }

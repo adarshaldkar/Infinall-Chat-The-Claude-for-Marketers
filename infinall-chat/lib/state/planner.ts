@@ -1,149 +1,237 @@
 // ============================================================
-// Step 3 Planning Pass
-// Lightweight classification of task type, recommended model,
-// and candidate tools. Does NOT force tool execution.
-// Full model routing: Sonnet (default) → Opus (complex strategy)
-// → GPT-5.6 (second opinion) → Kimi (fast factual)
+// Step 3 Planning Pass — Phase 1 PRD Compliant
+// Dedicated model call executing before the main generation turn:
+// - Classifies task type & complexity
+// - Determines exact model routing (Auto -> Sonnet/Opus/GPT-5.6)
+// - Evaluates candidate tools & skills dynamically
+// - Decides web retrieval & deep research requirements
+// - Dictates deliverable artifact expectations
 // ============================================================
 
 import { z } from 'zod';
+import { SkillResolver } from '@/lib/skills/resolver';
+import { DIRECTORY_TOOLS } from '@/lib/tools/directory-catalog';
 
 export const PlannerOutputSchema = z.object({
-  task_type: z.enum(['strategy', 'campaign_build', 'copywriting', 'analytics', 'general']),
-  complexity: z.enum(['simple', 'moderate', 'complex']),
+  task_type: z.enum([
+    'strategy',
+    'campaign_build',
+    'copywriting',
+    'analytics',
+    'research_synthesis',
+    'general',
+  ]),
+  complexity: z.enum(['simple', 'moderate', 'high', 'complex']),
   recommended_model: z.enum(['claude-sonnet-4-6', 'claude-opus-5', 'gpt-5-6']),
+  requires_web_retrieval: z.boolean(),
+  requires_research_mode: z.boolean(),
   candidate_tools: z.array(z.string()),
+  matched_skill_id: z.string().nullable(),
   expected_artifact_type: z
     .enum(['html', 'react', 'markdown', 'docx', 'pptx', 'xlsx'])
     .nullable(),
-  research_likely: z.boolean(),
   reasoning_summary: z.string(),
 });
 
 export type PlannerOutput = z.infer<typeof PlannerOutputSchema>;
 
-const PLANNER_SYSTEM_PROMPT = `You are the Infinall Chat planning pass. 
-Your job is to classify the user's marketing request and output a structured JSON plan.
-You do NOT generate a final answer here — you only analyze and classify.
-
-Respond ONLY with a valid JSON object matching this schema exactly:
-{
-  "task_type": "strategy" | "campaign_build" | "copywriting" | "analytics" | "general",
-  "complexity": "simple" | "moderate" | "complex",
-  "recommended_model": "claude-sonnet-4-6" | "claude-opus-5" | "gpt-5-6",
-  "candidate_tools": ["web_search"] | [],
-  "expected_artifact_type": "html" | "react" | "markdown" | "docx" | "pptx" | "xlsx" | null,
-  "research_likely": true | false,
-  "reasoning_summary": "one sentence why"
+export interface PlanningContext {
+  brandContext?: string;
+  chatHistorySnippet?: string;
+  connectedTools?: string[];
+  activeArtifactSummary?: string;
 }
 
-Model Routing Rules (apply in order of priority):
-1. "claude-sonnet-4-6" → primary model for campaign builds, ad copy generation, interactive calculators, HTML artifacts, and marketing workflows
-2. "claude-opus-5" → complex multi-step strategy, deep research synthesis, brand positioning, and high-stakes asks
-3. "gpt-5-6" → fast structured JSON, data extraction, and second opinion / cross-model comparison
+export function buildPlannerSystemPrompt(skillsManifestsSummary: string, toolsSummary: string): string {
+  return `You are the Infinall Chat autonomous planning engine.
+Your task is to analyze the user's incoming marketing brief and output a single, strictly valid JSON plan.
+You do NOT generate the final marketing answer — you only classify, route, and select tools/skills.
 
-Tool Rules:
-- If current information, competitor data, market pricing, or recent news needed → candidate_tools = ["web_search"]
-- If user wants scraped website content → candidate_tools = ["web_search", "firecrawl_scrape"]  
-- If user wants channel performance, ROAS, CPA metrics → candidate_tools = ["ga4_metrics"]
-- If user wants Meta campaign data → candidate_tools = ["meta_ads_read"]
-- candidate_tools are SUGGESTIONS only — the model decides whether to actually use them
+Available Marketing Skills Catalog:
+${skillsManifestsSummary}
 
-Artifact Rules:
-- Interactive calculator, dashboard, ROI tool → html
-- Ad copy doc, strategy playbook, GTM plan → markdown
-- Formal report for exec/client → docx
-- Slide deck / presentation → pptx
-- Budget tracker, media plan, data model → xlsx
-- null if purely conversational`;
+Available Connected Tools:
+${toolsSummary}
 
-// Planner always runs on Sonnet 4.6 (fast, JSON-mode reliable).
-// The recommended_model in its OUTPUT tells the agent loop which model to use for the actual work.
+Respond ONLY with a JSON object matching this exact schema:
+{
+  "task_type": "strategy" | "campaign_build" | "copywriting" | "analytics" | "research_synthesis" | "general",
+  "complexity": "simple" | "moderate" | "high" | "complex",
+  "recommended_model": "claude-sonnet-4-6" | "claude-opus-5" | "gpt-5-6",
+  "requires_web_retrieval": true | false,
+  "requires_research_mode": true | false,
+  "candidate_tools": ["tool_id_1", "tool_id_2"],
+  "matched_skill_id": "/slug" | null,
+  "expected_artifact_type": "html" | "react" | "markdown" | "docx" | "pptx" | "xlsx" | null,
+  "reasoning_summary": "one sentence explanation"
+}
+
+Model Routing Rules:
+1. "claude-sonnet-4-6" → primary workhorse for ad copy generation, email lifecycle flows, interactive HTML calculators, landing page teardowns, standard campaign builds, and tool-heavy tasks.
+2. "claude-opus-5" → high-complexity multi-channel GTM strategy, deep competitive research synthesis, brand positioning pillars, and executive board presentations.
+3. "gpt-5-6" → fast structured JSON data extraction, tabular formatting, and when the user explicitly requests a second opinion or cross-model verification.
+
+Research & Web Retrieval Rules:
+- If prompt requires fresh competitor pricing, current news, live SERP data, or external links → "requires_web_retrieval": true
+- If prompt requires multi-step deep research across multiple sub-queries → "requires_research_mode": true
+
+Artifact Decision Rules:
+- Interactive calculators, micro-apps, dashboards → "html"
+- Ad copy variations, strategic briefs, playbooks → "markdown"
+- Formal executive reports → "docx"
+- Slide deck outlines → "pptx"
+- Media plans, budget models, CSV tables → "xlsx"
+- Conversational answers without standalone deliverables → null`;
+}
+
 const PLANNER_MODEL = 'claude-sonnet-4-6';
 
 export async function runPlanner(
   userMessage: string,
-  // modelId is respected: if user explicitly selects a model, we honor that and skip auto-routing
-  userSelectedModelId?: string
+  userSelectedModelId?: string,
+  context?: PlanningContext
 ): Promise<PlannerOutput> {
+  const skills = SkillResolver.getAllManifests();
+  const skillsSummary = skills
+    .slice(0, 15)
+    .map((s) => `- ${s.slug}: ${s.name} (${s.description})`)
+    .join('\n');
+
+  const toolsSummary = DIRECTORY_TOOLS.slice(0, 30)
+    .map((t) => `- ${t.id}: ${t.name} (${t.category})`)
+    .join('\n');
+
+  const prompt = buildPlannerSystemPrompt(skillsSummary, toolsSummary);
+
   const apiKey = process.env.LLM_GATEWAY_API_KEY;
-  if (!apiKey) throw new Error('LLM_GATEWAY_API_KEY not set');
+  if (!apiKey) {
+    return deterministicPlannerFallback(userMessage, userSelectedModelId);
+  }
 
   const base = process.env.LLM_GATEWAY_BASE_URL ?? 'https://llm.ganeshnayak.in';
 
-  const res = await fetch(`${base}/v1/messages`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: PLANNER_MODEL,
-      max_tokens: 512, // planner only outputs a small JSON blob
-      system: PLANNER_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userMessage }],
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Planner request failed ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
-  const text: string =
-    data.content?.[0]?.text ?? data.choices?.[0]?.message?.content ?? '';
-
-  // Strip markdown fences if present
-  const clean = text.replace(/```json\n?|```/g, '').trim();
-
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(clean);
+    const res = await fetch(`${base}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: PLANNER_MODEL,
+        max_tokens: 512,
+        system: prompt,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+      signal: AbortSignal.timeout(6000),
+    });
+
+    if (!res.ok) {
+      return deterministicPlannerFallback(userMessage, userSelectedModelId);
+    }
+
+    const data = await res.json();
+    const text: string =
+      data.content?.[0]?.text ?? data.choices?.[0]?.message?.content ?? '';
+
+    const clean = text.replace(/```json\n?|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    const result = PlannerOutputSchema.safeParse(parsed);
+
+    if (result.success) {
+      const plan = result.data;
+      if (
+        userSelectedModelId &&
+        userSelectedModelId !== 'auto' &&
+        ['claude-sonnet-4-6', 'claude-opus-5', 'gpt-5-6'].includes(userSelectedModelId)
+      ) {
+        plan.recommended_model = userSelectedModelId as PlannerOutput['recommended_model'];
+      }
+      return plan;
+    }
   } catch {
-    // Fallback planner output when JSON parsing fails
-    const fallback: PlannerOutput = {
-      task_type: 'general',
-      complexity: 'moderate',
-      recommended_model: userSelectedModelId && ['claude-sonnet-4-6', 'claude-opus-5', 'gpt-5-6', 'Kimi-K2.6'].includes(userSelectedModelId)
-        ? userSelectedModelId as PlannerOutput['recommended_model']
-        : 'claude-sonnet-4-6',
-      candidate_tools: [],
-      expected_artifact_type: null,
-      research_likely: false,
-      reasoning_summary: 'Planner JSON parse failed — using default routing.',
-    };
-    return fallback;
+    // Fall back gracefully
   }
 
-  const result = PlannerOutputSchema.safeParse(parsed);
-  if (!result.success) {
-    // Schema mismatch fallback
-    const fallback: PlannerOutput = {
-      task_type: 'general',
-      complexity: 'moderate',
-      recommended_model: userSelectedModelId && ['claude-sonnet-4-6', 'claude-opus-5', 'gpt-5-6', 'Kimi-K2.6'].includes(userSelectedModelId)
-        ? userSelectedModelId as PlannerOutput['recommended_model']
-        : 'claude-sonnet-4-6',
-      candidate_tools: [],
-      expected_artifact_type: null,
-      research_likely: false,
-      reasoning_summary: 'Planner schema validation failed — using default routing.',
-    };
-    return fallback;
+  return deterministicPlannerFallback(userMessage, userSelectedModelId);
+}
+
+export function deterministicPlannerFallback(
+  userMessage: string,
+  userSelectedModelId?: string
+): PlannerOutput {
+  const lower = userMessage.toLowerCase();
+
+  let taskType: PlannerOutput['task_type'] = 'general';
+  let complexity: PlannerOutput['complexity'] = 'moderate';
+  let recommendedModel: PlannerOutput['recommended_model'] = 'claude-sonnet-4-6';
+  let requiresWeb = false;
+  let requiresResearch = false;
+  const candidateTools: string[] = [];
+  let matchedSkill: string | null = null;
+  let expectedArtifact: PlannerOutput['expected_artifact_type'] = null;
+
+  // Check for slash command
+  if (lower.startsWith('/ad-copy') || lower.includes('ad copy') || lower.includes('meta ad') || lower.includes('facebook ad')) {
+    taskType = 'copywriting';
+    matchedSkill = '/ad-copy';
+    expectedArtifact = 'markdown';
+    candidateTools.push('meta_ads_read');
+    recommendedModel = 'claude-sonnet-4-6';
+  } else if (lower.startsWith('/seo-audit') || lower.includes('seo') || lower.includes('keyword research')) {
+    taskType = 'analytics';
+    matchedSkill = '/seo-audit';
+    expectedArtifact = 'markdown';
+    requiresWeb = true;
+    candidateTools.push('web_search', 'ahrefs_site_explorer');
+    recommendedModel = 'claude-sonnet-4-6';
+  } else if (lower.startsWith('/brand-voice') || lower.includes('brand voice') || lower.includes('positioning')) {
+    taskType = 'strategy';
+    matchedSkill = '/brand-voice';
+    expectedArtifact = 'docx';
+    complexity = 'high';
+    recommendedModel = 'claude-opus-5';
+  } else if (lower.startsWith('/gtm-planner') || lower.includes('gtm') || lower.includes('launch plan') || lower.includes('go to market')) {
+    taskType = 'strategy';
+    matchedSkill = '/gtm-planner';
+    complexity = 'complex';
+    expectedArtifact = 'xlsx';
+    recommendedModel = 'claude-opus-5';
+  } else if (lower.startsWith('/cro-teardown') || lower.includes('calculator') || lower.includes('roi tool') || lower.includes('dashboard')) {
+    taskType = 'campaign_build';
+    matchedSkill = '/cro-teardown';
+    expectedArtifact = 'html';
+    recommendedModel = 'claude-sonnet-4-6';
+  } else if (lower.includes('deep research') || lower.includes('competitor teardown') || lower.includes('market analysis')) {
+    taskType = 'research_synthesis';
+    complexity = 'complex';
+    requiresResearch = true;
+    requiresWeb = true;
+    expectedArtifact = 'markdown';
+    recommendedModel = 'claude-opus-5';
+  } else if (lower.includes('second opinion') || lower.includes('cross-model') || lower.includes('extract json')) {
+    taskType = 'analytics';
+    recommendedModel = 'gpt-5-6';
   }
 
-  const plannerResult = result.data;
-
-  // If user explicitly selected a model (not "Auto"), override planner recommendation
   if (
     userSelectedModelId &&
     userSelectedModelId !== 'auto' &&
-    ['claude-sonnet-4-6', 'claude-opus-5', 'gpt-5-6', 'Kimi-K2.6'].includes(userSelectedModelId)
+    ['claude-sonnet-4-6', 'claude-opus-5', 'gpt-5-6'].includes(userSelectedModelId)
   ) {
-    plannerResult.recommended_model = userSelectedModelId as PlannerOutput['recommended_model'];
+    recommendedModel = userSelectedModelId as PlannerOutput['recommended_model'];
   }
 
-  return plannerResult;
+  return {
+    task_type: taskType,
+    complexity,
+    recommended_model: recommendedModel,
+    requires_web_retrieval: requiresWeb,
+    requires_research_mode: requiresResearch,
+    candidate_tools: candidateTools,
+    matched_skill_id: matchedSkill,
+    expected_artifact_type: expectedArtifact,
+    reasoning_summary: `Categorized as ${taskType} (${complexity}) -> Routed to ${recommendedModel}.`,
+  };
 }

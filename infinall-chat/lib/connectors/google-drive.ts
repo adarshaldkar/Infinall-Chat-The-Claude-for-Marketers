@@ -222,3 +222,99 @@ export async function ingestGoogleDriveFile(
     return { fileId, fileName, status: 'failed', error: err.message };
   }
 }
+
+export interface GoogleDriveExportResult {
+  fileId: string;
+  fileName: string;
+  webViewLink: string;
+  status: 'created' | 'updated' | 'simulated';
+}
+
+/**
+ * Export an Infinall artifact directly to Google Drive (as Google Doc, Sheet, or Drive file).
+ */
+export async function exportArtifactToGoogleDrive(
+  accessToken: string | null,
+  options: {
+    artifactId: string;
+    title: string;
+    type: string;
+    content: string;
+    folderId?: string;
+  }
+): Promise<GoogleDriveExportResult> {
+  const { title, type, content, folderId = 'root' } = options;
+  const fileName = `${title.replace(/[^a-zA-Z0-9_\- ]/g, '_')}`;
+
+  if (!accessToken) {
+    // Generate simulated export metadata when drive credential is offline or in test env
+    const fakeId = `1drive_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    return {
+      fileId: fakeId,
+      fileName: `${fileName}.${type === 'table' ? 'csv' : type === 'code' ? 'txt' : 'gdoc'}`,
+      webViewLink: `https://drive.google.com/file/d/${fakeId}/view`,
+      status: 'simulated',
+    };
+  }
+
+  let mimeType = 'text/plain';
+  let targetGoogleMime = 'application/vnd.google-apps.document';
+
+  if (type === 'table' || type === 'spreadsheet') {
+    mimeType = 'text/csv';
+    targetGoogleMime = 'application/vnd.google-apps.spreadsheet';
+  } else if (type === 'presentation') {
+    mimeType = 'text/plain';
+    targetGoogleMime = 'application/vnd.google-apps.presentation';
+  } else if (type === 'html' || type === 'app') {
+    mimeType = 'text/html';
+    targetGoogleMime = 'text/html';
+  } else if (type === 'svg') {
+    mimeType = 'image/svg+xml';
+    targetGoogleMime = 'image/svg+xml';
+  }
+
+  const metadata = {
+    name: fileName,
+    mimeType: targetGoogleMime.startsWith('application/vnd.google-apps') ? targetGoogleMime : undefined,
+    parents: folderId === 'root' ? undefined : [folderId],
+  };
+
+  const boundary = '-------314159265358979323846';
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
+
+  const multipartRequestBody =
+    delimiter +
+    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+    JSON.stringify(metadata) +
+    delimiter +
+    `Content-Type: ${mimeType}\r\n\r\n` +
+    content +
+    closeDelimiter;
+
+  const res = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body: multipartRequestBody,
+    }
+  );
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Google Drive API error (${res.status}): ${errText}`);
+  }
+
+  const data = await res.json();
+  return {
+    fileId: data.id,
+    fileName: data.name || fileName,
+    webViewLink: data.webViewLink || `https://drive.google.com/file/d/${data.id}/view`,
+    status: 'created',
+  };
+}
